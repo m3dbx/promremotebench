@@ -4,9 +4,15 @@
 *.dll
 *.so
 *.dylib
+.DS_Store
+.vscode/
 
 # Test binary, build with `go test -c`
 *.test
 
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
+
+# Binaries
+src/promremotebench
+
