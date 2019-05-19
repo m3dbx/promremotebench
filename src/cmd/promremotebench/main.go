@@ -78,7 +78,7 @@ func main() {
 	hostGen := generators.NewHostsSimulator(*numHosts, now)
 	client, err := NewClient(*targetURL, time.Minute)
 	if err != nil {
-		log.Fatalf("Error creating remote client: %v", err)
+		log.Fatalf("error creating remote client: %v", err)
 	}
 
 	generateLoop(hostGen, *scrapeIntervalSeconds, client, *remoteBatchSize)
