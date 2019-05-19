@@ -23,7 +23,6 @@ package generators
 import (
 	"fmt"
 	"time"
-
 	"math/rand"
 
 	"github.com/influxdata/influxdb-comparisons/bulk_data_gen/common"
@@ -34,38 +33,29 @@ import (
 )
 
 type HostsSimulator struct {
-	hosts                 map[int][]devops.Host
-	scrapeIntervalSeconds int
+	hosts                 []devops.Host
 }
 
-func NewHostsSimulator(hostCount, scrapeIntervalSeconds int, start time.Time) *HostsSimulator {
-	hosts := make(map[int][]devops.Host, scrapeIntervalSeconds)
-
-	for i := 0; i < scrapeIntervalSeconds; i++ {
-		hosts[i] = make([]devops.Host, 0, hostCount/scrapeIntervalSeconds+1)
-	}
-
+func NewHostsSimulator(hostCount int, start time.Time) *HostsSimulator {
+	var hosts []devops.Host
 	for i := 0; i < hostCount; i++ {
-		intervalOffsetSeconds := i % scrapeIntervalSeconds
-		hosts[intervalOffsetSeconds] = append(hosts[i%scrapeIntervalSeconds], devops.NewHost(rand.Int(), rand.Int(), start.Add(time.Duration(intervalOffsetSeconds)*time.Second)))
+		host := devops.NewHost(rand.Int(), rand.Int(), start)
+		hosts = append(hosts, host)
 	}
 
 	return &HostsSimulator{
-		hosts:                 hosts,
-		scrapeIntervalSeconds: scrapeIntervalSeconds,
+		hosts: hosts,
 	}
 }
 
-func (h *HostsSimulator) Generate(offsetSeconds int) []*prompb.TimeSeries {
-	hosts := h.hosts[offsetSeconds]
+func (h *HostsSimulator) Generate(progressBy time.Duration) []*prompb.TimeSeries {
+	now := time.Now().Unix()
+	allSeries := make([]*prompb.TimeSeries, 0, len(h.hosts)*len(h.hosts[0].SimulatedMeasurements))
+	for _, host := range h.hosts {
+		if progressBy > 0 {
+			host.TickAll(progressBy)
+		}
 
-	if hosts == nil {
-		return nil
-	}
-
-	allSeries := make([]*prompb.TimeSeries, 0, len(hosts)*100)
-
-	for _, host := range hosts {
 		for _, measurement := range host.SimulatedMeasurements {
 			p := common.MakeUsablePoint()
 			measurement.ToPoint(p)
@@ -81,7 +71,7 @@ func (h *HostsSimulator) Generate(offsetSeconds int) []*prompb.TimeSeries {
 				case float64:
 					val = float64(v)
 				default:
-					panic(fmt.Sprintf("Cannot field %s with value type: %T with ", fieldName, v))
+					panic(fmt.Sprintf("bad field %s with value type: %T with ", fieldName, v))
 				}
 
 				labels := []*prompb.Label{
@@ -101,7 +91,7 @@ func (h *HostsSimulator) Generate(offsetSeconds int) []*prompb.TimeSeries {
 
 				sample := prompb.Sample{
 					Value:     val,
-					Timestamp: p.Timestamp.Unix(),
+					Timestamp: now,
 				}
 
 				allSeries = append(allSeries, &prompb.TimeSeries{
@@ -110,8 +100,6 @@ func (h *HostsSimulator) Generate(offsetSeconds int) []*prompb.TimeSeries {
 				})
 			}
 		}
-
-		host.TickAll(time.Duration(h.scrapeIntervalSeconds) * time.Second)
 	}
 
 	return allSeries

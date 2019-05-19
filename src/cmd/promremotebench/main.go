@@ -75,7 +75,7 @@ func main() {
 	}
 
 	now := time.Now()
-	hostGen := generators.NewHostsSimulator(*numHosts, *scrapeIntervalSeconds, now)
+	hostGen := generators.NewHostsSimulator(*numHosts, now)
 	client, err := NewClient(*targetURL, time.Minute)
 	if err != nil {
 		log.Fatalf("Error creating remote client: %v", err)
@@ -84,20 +84,26 @@ func main() {
 	generateLoop(hostGen, *scrapeIntervalSeconds, client, *remoteBatchSize)
 }
 
-func generateLoop(generator *generators.HostsSimulator, intervalSeconds int,
-	remotePromClient *Client, remotePromBatchSize int) {
-	
+func generateLoop(
+	generator *generators.HostsSimulator, 
+	intervalSeconds int,
+	remotePromClient *Client, 
+	remotePromBatchSize int,
+) {
+	period := time.Duration(intervalSeconds) * time.Second
 
-	ticker := time.NewTicker(time.Second)
+	ticker := time.NewTicker(period)
 	defer ticker.Stop()
 
-	secTick := 0
+	// First with zero progression
+	remoteWrite(generator.Generate(0), remotePromClient, 
+		remotePromBatchSize)	
+
 	for range ticker.C {
-		secTick := secTick
 		go func() {
-			series := generator.Generate(secTick)
-			remoteWrite(series, remotePromClient, remotePromBatchSize)
+			// Progress each time by same period
+			remoteWrite(generator.Generate(period), 
+				remotePromClient, remotePromBatchSize)
 		}()
-		secTick++
 	}
 }
