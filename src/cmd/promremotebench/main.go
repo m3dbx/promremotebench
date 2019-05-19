@@ -81,6 +81,10 @@ func main() {
 		log.Fatalf("error creating remote client: %v", err)
 	}
 
+	for _, host := range hostGen.Hosts() {
+		log.Println("simulating host", host.Name)
+	}
+
 	generateLoop(hostGen, *scrapeIntervalSeconds, client, *remoteBatchSize)
 }
 

@@ -48,6 +48,10 @@ func NewHostsSimulator(hostCount int, start time.Time) *HostsSimulator {
 	}
 }
 
+func (h *HostsSimulator) Hosts() []devops.Host {
+	return append([]devops.Host{}, h.hosts...)
+}
+
 func (h *HostsSimulator) Generate(progressBy time.Duration) []*prompb.TimeSeries {
 	nowUnixMilliseconds := time.Now().UnixNano() / int64(time.Millisecond)
 	allSeries := make([]*prompb.TimeSeries, 0, len(h.hosts)*len(h.hosts[0].SimulatedMeasurements))
