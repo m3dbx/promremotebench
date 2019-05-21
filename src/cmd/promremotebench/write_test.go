@@ -103,7 +103,8 @@ func TestRemoteWrite(t *testing.T) {
 				t.Fatal(err)
 			}
 		
-			hostGen := generators.NewHostsSimulator(test.numHosts, time.Now())
+			hostGen := generators.NewHostsSimulator(test.numHosts, time.Now(),
+				generators.HostsSimulatorOptions{})
 			series := hostGen.Generate(0)
 
 			batchSize := 10

@@ -24,6 +24,7 @@ import (
 	"flag"
 	"log"
 	"os"
+	"encoding/json"
 	"time"
 	"strconv"
 
@@ -35,6 +36,7 @@ const (
 	envInterval = "PROMREMOTEBENCH_INTERVAL"
 	envNumHosts = "PROMREMOTEBENCH_NUM_HOSTS"
 	envRemoteBatchSize = "PROMREMOTEBENCH_BATCH"
+	envLabelsJSON = "PROMREMOTEBENCH_LABELS_JSON"
 )
 
 func main() {
@@ -43,6 +45,7 @@ func main() {
 		scrapeIntervalSeconds = flag.Int("interval", 10, "Prom endpoint scrape interval")
 		numHosts              = flag.Int("hosts", 100, "Number of hosts to mimic scrapes from")
 		remoteBatchSize       = flag.Int("batch", 128, "Number of metrics per batch send via remote write")
+		labels                = flag.String("labels", "{}", "Labels in JSON format to append to all metrics")
 	)
 
 	flag.Parse()
@@ -73,9 +76,18 @@ func main() {
 			log.Fatalf("could not parse env var: var=%s, err=%s", envRemoteBatchSize, err)
 		}
 	}
+	if v := os.Getenv(envLabelsJSON); v != "" {
+		*labels = v
+	}
+
+	var parsedLabels map[string]string
+	if err := json.Unmarshal([]byte(*labels), &parsedLabels); err != nil {
+		log.Fatalf("could not parse fixed added labels: %v", err)
+	}
 
 	now := time.Now()
-	hostGen := generators.NewHostsSimulator(*numHosts, now)
+	hostGen := generators.NewHostsSimulator(*numHosts, now, 
+		generators.HostsSimulatorOptions{Labels: parsedLabels})
 	client, err := NewClient(*targetURL, time.Minute)
 	if err != nil {
 		log.Fatalf("error creating remote client: %v", err)
@@ -85,7 +97,8 @@ func main() {
 		log.Println("simulating host", host.Name)
 	}
 
-	generateLoop(hostGen, *scrapeIntervalSeconds, client, *remoteBatchSize)
+	generateLoop(hostGen, *scrapeIntervalSeconds, 
+		client, *remoteBatchSize)
 }
 
 func generateLoop(
@@ -100,14 +113,14 @@ func generateLoop(
 	defer ticker.Stop()
 
 	// First with zero progression
-	remoteWrite(generator.Generate(0), remotePromClient, 
-		remotePromBatchSize)	
+	remoteWrite(generator.Generate(0), remotePromClient,  
+	remotePromBatchSize)	
 
 	for range ticker.C {
 		go func() {
 			// Progress each time by same period
-			remoteWrite(generator.Generate(period), 
-				remotePromClient, remotePromBatchSize)
+			remoteWrite(generator.Generate(period), remotePromClient, 
+			remotePromBatchSize)
 		}()
 	}
 }

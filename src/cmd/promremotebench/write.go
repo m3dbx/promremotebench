@@ -26,6 +26,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -68,14 +69,14 @@ func remoteWriteBatch(series []*prompb.TimeSeries, remotePromClient *Client) {
 
 	data, err := proto.Marshal(req)
 	if err != nil {
-		fmt.Println("Error marshalling prompb write request:", err)
+		log.Println("Error marshalling prompb write request:", err)
 		return
 	}
 
 	encoded := snappy.Encode(nil, data)
 	err = remotePromClient.Store(ctx, encoded)
 	if err != nil {
-		fmt.Println("Error writing to remote prom store:", err)
+		log.Println("Error writing to remote prom store:", err)
 		return
 	}
 }

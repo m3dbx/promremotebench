@@ -29,14 +29,7 @@ import (
 
 func TestHostsSimulator(t *testing.T) {
 	start := time.Now()
-	s := NewHostsSimulator(1, 5, start)
-
-	assert.Equal(t, 0, len(s.Generate(1)))
-	assert.Equal(t, 0, len(s.Generate(2)))
-	assert.Equal(t, 0, len(s.Generate(3)))
-	assert.Equal(t, 0, len(s.Generate(4)))
-	assert.Equal(t, 0, len(s.Generate(5)))
-	assert.Equal(t, 0, len(s.Generate(6)))
+	s := NewHostsSimulator(1, start, HostsSimulatorOptions{})
 
 	series := s.Generate(0)
 	assert.True(t, len(series) > 0)

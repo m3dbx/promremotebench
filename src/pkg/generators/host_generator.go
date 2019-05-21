@@ -23,7 +23,6 @@ package generators
 import (
 	"fmt"
 	"time"
-	"math/rand"
 
 	"github.com/influxdata/influxdb-comparisons/bulk_data_gen/common"
 	"github.com/influxdata/influxdb-comparisons/bulk_data_gen/devops"
@@ -34,17 +33,37 @@ import (
 
 type HostsSimulator struct {
 	hosts                 []devops.Host
+	appendLabels []*prompb.Label
 }
 
-func NewHostsSimulator(hostCount int, start time.Time) *HostsSimulator {
+type HostsSimulatorOptions struct {
+	Labels map[string]string
+}
+
+func NewHostsSimulator(
+	hostCount int, 
+	start time.Time,
+	opts HostsSimulatorOptions,
+) *HostsSimulator {
 	var hosts []devops.Host
 	for i := 0; i < hostCount; i++ {
-		host := devops.NewHost(rand.Int(), rand.Int(), start)
+		host := devops.NewHost(i, 0, start)
 		hosts = append(hosts, host)
+	}
+
+	var appendLabels []*prompb.Label
+	if opts.Labels != nil {
+		for k, v := range opts.Labels {
+			appendLabels = append(appendLabels, &prompb.Label{
+				Name: k,
+				Value: v,
+			})
+		}
 	}
 
 	return &HostsSimulator{
 		hosts: hosts,
+		appendLabels: appendLabels,
 	}
 }
 
@@ -91,6 +110,9 @@ func (h *HostsSimulator) Generate(progressBy time.Duration) []*prompb.TimeSeries
 					&prompb.Label{Name: string(devops.MachineTagKeys[9]), Value: string(host.ServiceEnvironment)},
 					&prompb.Label{Name: "measurement", Value: string(fieldName)},
 					&prompb.Label{Name: labels.MetricName, Value: string(p.MeasurementName)},
+				}
+				if len(h.appendLabels) > 0 {
+					labels = append(labels, h.appendLabels...)
 				}
 
 				sample := prompb.Sample{
