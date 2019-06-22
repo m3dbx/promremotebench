@@ -21,8 +21,6 @@
 package main
 
 import (
-	"fmt"
-	"math"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
@@ -40,83 +38,72 @@ import (
 )
 
 func TestRemoteWrite(t *testing.T) {
-	tests := []struct {
-		name string
-		numHosts int
-		expectedBatches int
-		expectedSeries int
-	} {
-		{
-			name: "one host",
-			numHosts: 1,
-		},
-		{
-			name: "eleven hosts",
-			numHosts: 11,
-		},
-		{
-			name: "hundred hosts",
-			numHosts: 100,
-		},
+	numBatchesRecieved := 0
+	numTSRecieved := 0
+	var wg sync.WaitGroup
+
+	server := httptest.NewServer(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			compressed, err := ioutil.ReadAll(r.Body)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			reqBuf, err := snappy.Decode(nil, compressed)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+
+			var req prompb.WriteRequest
+			if err := proto.Unmarshal(reqBuf, &req); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+
+			numBatchesRecieved++
+			numTSRecieved += len(req.Timeseries)
+
+			wg.Done()
+		}),
+	)
+
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			numBatchesRecieved := 0
-			numTSRecieved := 0
-			var wg sync.WaitGroup
-		
-			server := httptest.NewServer(
-				http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					compressed, err := ioutil.ReadAll(r.Body)
-					if err != nil {
-						http.Error(w, err.Error(), http.StatusInternalServerError)
-						return
-					}
-		
-					reqBuf, err := snappy.Decode(nil, compressed)
-					if err != nil {
-						http.Error(w, err.Error(), http.StatusBadRequest)
-						return
-					}
-		
-					var req prompb.WriteRequest
-					if err := proto.Unmarshal(reqBuf, &req); err != nil {
-						http.Error(w, err.Error(), http.StatusBadRequest)
-						return
-					}
-		
-					numBatchesRecieved++
-					numTSRecieved += len(req.Timeseries)
-		
-					wg.Done()
-				}),
-			)
-		
-			serverURL, err := url.Parse(server.URL)
-			if err != nil {
-				t.Fatal(err)
-			}
-		
-			remotePromClient, err := NewClient(serverURL.String(), time.Minute)
-			if err != nil {
-				t.Fatal(err)
-			}
-		
-			hostGen := generators.NewHostsSimulator(test.numHosts, time.Now(),
-				generators.HostsSimulatorOptions{})
-			series := hostGen.Generate(0)
-
-			batchSize := 10
-			expectedBatches := int(math.Ceil(float64(len(series))/float64(batchSize)))
-
-			wg.Add(expectedBatches)
-			remoteWrite(series, remotePromClient, batchSize)
-			wg.Wait()
-			assert.Equal(t, expectedBatches, numBatchesRecieved)
-			assert.Equal(t, len(series), numTSRecieved)
-
-			fmt.Println("wrote series:", len(series))
-		})
+	remotePromClient, err := NewClient(serverURL.String(), time.Minute)
+	if err != nil {
+		t.Fatal(err)
 	}
+
+	hostGen := generators.NewHostsSimulator(1, 10, time.Now(), generators.HostsSimulatorOptions{})
+	series := hostGen.Generate(0, 0)
+	wg.Add(11)
+	remoteWrite(series, remotePromClient, 10)
+	wg.Wait()
+	assert.Equal(t, 11, numBatchesRecieved)
+	assert.Equal(t, 101, numTSRecieved)
+
+	numBatchesRecieved = 0
+	numTSRecieved = 0
+	hostGen = generators.NewHostsSimulator(11, 10, time.Now(), generators.HostsSimulatorOptions{})
+	series = hostGen.Generate(0, 0)
+	wg.Add(21)
+	remoteWrite(series, remotePromClient, 10)
+	wg.Wait()
+	assert.Equal(t, 21, numBatchesRecieved)
+	assert.Equal(t, 202, numTSRecieved)
+
+	numBatchesRecieved = 0
+	numTSRecieved = 0
+	hostGen = generators.NewHostsSimulator(100, 10, time.Now(), generators.HostsSimulatorOptions{})
+	series = hostGen.Generate(0, 0)
+	wg.Add(101)
+	remoteWrite(series, remotePromClient, 10)
+	wg.Wait()
+	assert.Equal(t, 101, numBatchesRecieved)
+	assert.Equal(t, 1010, numTSRecieved)
 }

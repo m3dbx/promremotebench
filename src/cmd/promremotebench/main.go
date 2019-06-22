@@ -21,22 +21,23 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"log"
 	"os"
-	"encoding/json"
-	"time"
 	"strconv"
+	"time"
 
 	"promremotebench/pkg/generators"
 )
 
 const (
-	envTarget = "PROMREMOTEBENCH_TARGET"
-	envInterval = "PROMREMOTEBENCH_INTERVAL"
-	envNumHosts = "PROMREMOTEBENCH_NUM_HOSTS"
-	envRemoteBatchSize = "PROMREMOTEBENCH_BATCH"
-	envLabelsJSON = "PROMREMOTEBENCH_LABELS_JSON"
+	envTarget           = "PROMREMOTEBENCH_TARGET"
+	envInterval         = "PROMREMOTEBENCH_INTERVAL"
+	envNumHosts         = "PROMREMOTEBENCH_NUM_HOSTS"
+	envRemoteBatchSize  = "PROMREMOTEBENCH_BATCH"
+	envNewSeriesPercent = "PROMREMOTEBENCH_NEW_SERIES_PERCENTAGE"
+	envLabelsJSON       = "PROMREMOTEBENCH_LABELS_JSON"
 )
 
 func main() {
@@ -44,6 +45,7 @@ func main() {
 		targetURL             = flag.String("target", "http://localhost:7201/receive", "Target remote write endpoint")
 		scrapeIntervalSeconds = flag.Int("interval", 10, "Prom endpoint scrape interval")
 		numHosts              = flag.Int("hosts", 100, "Number of hosts to mimic scrapes from")
+		newSeriesPercent      = flag.Float64("new", 0.01, "Percentage of new series per scrape interval [0, 100]")
 		remoteBatchSize       = flag.Int("batch", 128, "Number of metrics per batch send via remote write")
 		labels                = flag.String("labels", "{}", "Labels in JSON format to append to all metrics")
 	)
@@ -76,6 +78,15 @@ func main() {
 			log.Fatalf("could not parse env var: var=%s, err=%s", envRemoteBatchSize, err)
 		}
 	}
+	if v := os.Getenv(envNewSeriesPercent); v != "" {
+		*newSeriesPercent, err = strconv.ParseFloat(v, 64)
+		if err != nil {
+			log.Fatalf("could not parse env var: var=%s, err=%s", envNewSeriesPercent, err)
+		}
+	}
+	if *newSeriesPercent < 0 || *newSeriesPercent > 100 {
+		log.Fatalf("new series percentage must be in the range of [0, 100]")
+	}
 	if v := os.Getenv(envLabelsJSON); v != "" {
 		*labels = v
 	}
@@ -86,7 +97,7 @@ func main() {
 	}
 
 	now := time.Now()
-	hostGen := generators.NewHostsSimulator(*numHosts, now, 
+	hostGen := generators.NewHostsSimulator(*numHosts, *scrapeIntervalSeconds, now,
 		generators.HostsSimulatorOptions{Labels: parsedLabels})
 	client, err := NewClient(*targetURL, time.Minute)
 	if err != nil {
@@ -97,30 +108,28 @@ func main() {
 		log.Println("simulating host", host.Name)
 	}
 
-	generateLoop(hostGen, *scrapeIntervalSeconds, 
+	generateLoop(hostGen, *scrapeIntervalSeconds, *newSeriesPercent,
 		client, *remoteBatchSize)
 }
 
 func generateLoop(
-	generator *generators.HostsSimulator, 
+	generator *generators.HostsSimulator,
 	intervalSeconds int,
-	remotePromClient *Client, 
+	newSeriesPercent float64,
+	remotePromClient *Client,
 	remotePromBatchSize int,
 ) {
-	period := time.Duration(intervalSeconds) * time.Second
+	series := generator.Generate(0, newSeriesPercent)
+	remoteWrite(series, remotePromClient, remotePromBatchSize)
 
-	ticker := time.NewTicker(period)
-	defer ticker.Stop()
+	secTick := 1
+	for _ = range time.Tick(time.Second) {
+		go func(tick int) {
+			curTick := tick % intervalSeconds
+			series := generator.Generate(curTick, newSeriesPercent)
+			remoteWrite(series, remotePromClient, remotePromBatchSize)
+		}(secTick)
 
-	// First with zero progression
-	remoteWrite(generator.Generate(0), remotePromClient,  
-	remotePromBatchSize)	
-
-	for range ticker.C {
-		go func() {
-			// Progress each time by same period
-			remoteWrite(generator.Generate(period), remotePromClient, 
-			remotePromBatchSize)
-		}()
+		secTick++
 	}
 }
