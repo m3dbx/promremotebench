@@ -29,28 +29,8 @@ import (
 
 func TestHostsSimulator(t *testing.T) {
 	start := time.Now()
-	s := NewHostsSimulator(1, 5, start, HostsSimulatorOptions{})
+	s := NewHostsSimulator(1, start, HostsSimulatorOptions{})
 
-	assert.Equal(t, 0, len(s.Generate(1, 0)))
-	assert.Equal(t, 0, len(s.Generate(2, 0)))
-	assert.Equal(t, 0, len(s.Generate(3, 0)))
-	assert.Equal(t, 0, len(s.Generate(4, 0)))
-	assert.Equal(t, 0, len(s.Generate(5, 0)))
-	assert.Equal(t, 0, len(s.Generate(6, 0)))
-	assert.Equal(t, 0, len(s.Generate(7, 0)))
-
-	series := s.Generate(0, 0)
-	assert.Equal(t, 101, len(series))
-
-	newSeries := s.Generate(0, 0)
-	assert.Equal(t, 101, len(newSeries))
-	assert.Equal(t, series[0].Labels, newSeries[0].Labels)
-
-	newSeries = s.Generate(0, 100)
-	assert.Equal(t, 101, len(newSeries))
-	assert.Equal(t, series[0].Labels, newSeries[0].Labels)
-
-	newSeries = s.Generate(0, 100)
-	assert.Equal(t, 101, len(newSeries))
-	assert.NotEqual(t, series[0].Labels, newSeries[0].Labels)
+	series := s.Generate(time.Second, time.Second, 0)
+	assert.True(t, len(series) > 0)
 }

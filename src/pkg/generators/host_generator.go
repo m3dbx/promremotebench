@@ -22,6 +22,7 @@ package generators
 
 import (
 	"fmt"
+	"math"
 	"math/rand"
 	"time"
 
@@ -33,9 +34,9 @@ import (
 )
 
 type HostsSimulator struct {
-	hosts                 map[int][]*devops.Host
-	scrapeIntervalSeconds int
-	appendLabels          []*prompb.Label
+	hosts        []devops.Host
+	allHosts     []devops.Host
+	appendLabels []*prompb.Label
 }
 
 type HostsSimulatorOptions struct {
@@ -43,20 +44,14 @@ type HostsSimulatorOptions struct {
 }
 
 func NewHostsSimulator(
-	hostCount, scrapeIntervalSeconds int,
+	hostCount int,
 	start time.Time,
 	opts HostsSimulatorOptions,
 ) *HostsSimulator {
-	hosts := make(map[int][]*devops.Host, scrapeIntervalSeconds)
-
-	for i := 0; i < scrapeIntervalSeconds; i++ {
-		hosts[i] = make([]*devops.Host, 0, hostCount/scrapeIntervalSeconds+1)
-	}
-
+	var hosts []devops.Host
 	for i := 0; i < hostCount; i++ {
-		intervalOffsetSeconds := i % scrapeIntervalSeconds
-		host := devops.NewHost(rand.Int(), rand.Int(), start.Add(time.Duration(intervalOffsetSeconds)*time.Second))
-		hosts[intervalOffsetSeconds] = append(hosts[i%scrapeIntervalSeconds], &host)
+		host := devops.NewHost(rand.Int(), 0, start)
+		hosts = append(hosts, host)
 	}
 
 	var appendLabels []*prompb.Label
@@ -70,103 +65,96 @@ func NewHostsSimulator(
 	}
 
 	return &HostsSimulator{
-		hosts:                 hosts,
-		scrapeIntervalSeconds: scrapeIntervalSeconds,
-		appendLabels:          appendLabels,
+		hosts:        hosts,
+		allHosts:     hosts,
+		appendLabels: appendLabels,
 	}
 }
 
-func (h *HostsSimulator) Hosts() []*devops.Host {
-	var allHosts []*devops.Host
-	for _, hosts := range h.hosts {
-		allHosts = append(allHosts, hosts...)
-	}
-
-	return allHosts
+func (h *HostsSimulator) Hosts() []devops.Host {
+	return append([]devops.Host{}, h.hosts...)
 }
 
-func (h *HostsSimulator) Generate(offsetSeconds int, newSeriesPercent float64) []*prompb.TimeSeries {
-	hosts := h.hosts[offsetSeconds]
-
-	if hosts == nil {
-		return nil
-	}
-
-	allSeries := make([]*prompb.TimeSeries, 0, len(hosts)*101)
-	hostsToRemove := map[*devops.Host]struct{}{}
-
-	for _, host := range hosts {
-		allSeries = appendMeasurements(host, allSeries, h.appendLabels)
-		if newSeriesPercent > 0 && rand.Float64()*100 < newSeriesPercent {
-			hostsToRemove[host] = struct{}{}
-			continue
+func (h *HostsSimulator) Generate(progressBy, scrapeDuration time.Duration, newSeriesPercent float64) []*prompb.TimeSeries {
+	now := time.Now()
+	numHosts := int(float64(progressBy/scrapeDuration) * float64(len(h.allHosts)))
+	if len(h.hosts) == 0 {
+		// Out of hosts, remove/add hosts as needed and progress ticking
+		for _, host := range h.allHosts {
+			host.TickAll(progressBy)
 		}
-
-		host.TickAll(time.Duration(h.scrapeIntervalSeconds) * time.Second)
+		if newSeriesPercent > 0 {
+			remove := int(math.Ceil(newSeriesPercent * float64(len(h.allHosts))))
+			h.allHosts = h.allHosts[:len(h.allHosts)-remove]
+			for i := 0; i < remove; i++ {
+				newHost := devops.NewHost(rand.Int(), 0, now)
+				h.allHosts = append(h.allHosts, newHost)
+			}
+		}
+		// Reset hosts
+		h.hosts = h.allHosts
+	}
+	if len(h.hosts) < numHosts {
+		numHosts = len(h.hosts)
 	}
 
-	if len(hostsToRemove) > 0 {
-		for i, host := range hosts {
-			if _, exists := hostsToRemove[host]; exists {
-				newHost := devops.NewHost(rand.Int(), rand.Int(), time.Now())
-				newHost.TickAll((time.Duration(h.scrapeIntervalSeconds) * time.Second))
-				hosts[i] = &newHost
+	// Select hosts
+	sendFromHosts := h.hosts[:numHosts]
+
+	// Progress hosts
+	h.hosts = h.hosts[numHosts:]
+
+	nowUnixMilliseconds := now.UnixNano() / int64(time.Millisecond)
+	allSeries := make([]*prompb.TimeSeries, 0, len(sendFromHosts)*len(sendFromHosts[0].SimulatedMeasurements))
+	for _, host := range sendFromHosts {
+		for _, measurement := range host.SimulatedMeasurements {
+			p := common.MakeUsablePoint()
+			measurement.ToPoint(p)
+
+			for i, fieldName := range p.FieldKeys {
+				val := 0.0
+
+				switch v := p.FieldValues[i].(type) {
+				case int:
+					val = float64(int(v))
+				case int64:
+					val = float64(int64(v))
+				case float64:
+					val = float64(v)
+				default:
+					panic(fmt.Sprintf("bad field %s with value type: %T with ", fieldName, v))
+				}
+
+				labels := []*prompb.Label{
+					&prompb.Label{Name: string(devops.MachineTagKeys[0]), Value: string(host.Name)},
+					&prompb.Label{Name: string(devops.MachineTagKeys[1]), Value: string(host.Region)},
+					&prompb.Label{Name: string(devops.MachineTagKeys[2]), Value: string(host.Datacenter)},
+					&prompb.Label{Name: string(devops.MachineTagKeys[3]), Value: string(host.Rack)},
+					&prompb.Label{Name: string(devops.MachineTagKeys[4]), Value: string(host.OS)},
+					&prompb.Label{Name: string(devops.MachineTagKeys[5]), Value: string(host.Arch)},
+					&prompb.Label{Name: string(devops.MachineTagKeys[6]), Value: string(host.Team)},
+					&prompb.Label{Name: string(devops.MachineTagKeys[7]), Value: string(host.Service)},
+					&prompb.Label{Name: string(devops.MachineTagKeys[8]), Value: string(host.ServiceVersion)},
+					&prompb.Label{Name: string(devops.MachineTagKeys[9]), Value: string(host.ServiceEnvironment)},
+					&prompb.Label{Name: "measurement", Value: string(fieldName)},
+					&prompb.Label{Name: labels.MetricName, Value: string(p.MeasurementName)},
+				}
+				if len(h.appendLabels) > 0 {
+					labels = append(labels, h.appendLabels...)
+				}
+
+				sample := prompb.Sample{
+					Value:     val,
+					Timestamp: nowUnixMilliseconds,
+				}
+
+				allSeries = append(allSeries, &prompb.TimeSeries{
+					Labels:  labels,
+					Samples: []prompb.Sample{sample},
+				})
 			}
 		}
 	}
 
 	return allSeries
-}
-
-func appendMeasurements(host *devops.Host, series []*prompb.TimeSeries, appendLabels []*prompb.Label) []*prompb.TimeSeries {
-	for _, measurement := range host.SimulatedMeasurements {
-		p := common.MakeUsablePoint()
-		measurement.ToPoint(p)
-
-		for i, fieldName := range p.FieldKeys {
-			val := 0.0
-
-			switch v := p.FieldValues[i].(type) {
-			case int:
-				val = float64(int(v))
-			case int64:
-				val = float64(int64(v))
-			case float64:
-				val = float64(v)
-			default:
-				panic(fmt.Sprintf("Cannot field %s with value type: %T with ", fieldName, v))
-			}
-
-			labels := []*prompb.Label{
-				&prompb.Label{Name: string(devops.MachineTagKeys[0]), Value: string(host.Name)},
-				&prompb.Label{Name: string(devops.MachineTagKeys[1]), Value: string(host.Region)},
-				&prompb.Label{Name: string(devops.MachineTagKeys[2]), Value: string(host.Datacenter)},
-				&prompb.Label{Name: string(devops.MachineTagKeys[3]), Value: string(host.Rack)},
-				&prompb.Label{Name: string(devops.MachineTagKeys[4]), Value: string(host.OS)},
-				&prompb.Label{Name: string(devops.MachineTagKeys[5]), Value: string(host.Arch)},
-				&prompb.Label{Name: string(devops.MachineTagKeys[6]), Value: string(host.Team)},
-				&prompb.Label{Name: string(devops.MachineTagKeys[7]), Value: string(host.Service)},
-				&prompb.Label{Name: string(devops.MachineTagKeys[8]), Value: string(host.ServiceVersion)},
-				&prompb.Label{Name: string(devops.MachineTagKeys[9]), Value: string(host.ServiceEnvironment)},
-				&prompb.Label{Name: "measurement", Value: string(fieldName)},
-				&prompb.Label{Name: labels.MetricName, Value: string(p.MeasurementName)},
-			}
-
-			if len(appendLabels) > 0 {
-				labels = append(labels, appendLabels...)
-			}
-
-			sample := prompb.Sample{
-				Value:     val,
-				Timestamp: p.Timestamp.UnixNano() / int64(time.Millisecond),
-			}
-
-			series = append(series, &prompb.TimeSeries{
-				Labels:  labels,
-				Samples: []prompb.Sample{sample},
-			})
-		}
-	}
-
-	return series
 }

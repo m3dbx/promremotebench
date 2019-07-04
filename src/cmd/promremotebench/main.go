@@ -43,11 +43,12 @@ const (
 func main() {
 	var (
 		targetURL             = flag.String("target", "http://localhost:7201/receive", "Target remote write endpoint")
-		scrapeIntervalSeconds = flag.Int("interval", 10, "Prom endpoint scrape interval")
+		scrapeIntervalSeconds = flag.Float64("interval", 10.0, "Prom endpoint scrape interval in seconds")
 		numHosts              = flag.Int("hosts", 100, "Number of hosts to mimic scrapes from")
 		newSeriesPercent      = flag.Float64("new", 0.01, "Percentage of new series per scrape interval [0, 100]")
 		remoteBatchSize       = flag.Int("batch", 128, "Number of metrics per batch send via remote write")
 		labels                = flag.String("labels", "{}", "Labels in JSON format to append to all metrics")
+		scrapeSpreadBy        = flag.Float64("spread", 10.0, "The number of times to spread the scrape interval by when emitting samples")
 	)
 
 	flag.Parse()
@@ -61,7 +62,7 @@ func main() {
 		*targetURL = v
 	}
 	if v := os.Getenv(envInterval); v != "" {
-		*scrapeIntervalSeconds, err = strconv.Atoi(v)
+		*scrapeIntervalSeconds, err = strconv.ParseFloat(v, 64)
 		if err != nil {
 			log.Fatalf("could not parse env var: var=%s, err=%s", envInterval, err)
 		}
@@ -97,7 +98,7 @@ func main() {
 	}
 
 	now := time.Now()
-	hostGen := generators.NewHostsSimulator(*numHosts, *scrapeIntervalSeconds, now,
+	hostGen := generators.NewHostsSimulator(*numHosts, now,
 		generators.HostsSimulatorOptions{Labels: parsedLabels})
 	client, err := NewClient(*targetURL, time.Minute)
 	if err != nil {
@@ -108,28 +109,42 @@ func main() {
 		log.Println("simulating host", host.Name)
 	}
 
-	generateLoop(hostGen, *scrapeIntervalSeconds, *newSeriesPercent,
-		client, *remoteBatchSize)
+	scrapeDuration := *scrapeIntervalSeconds * float64(time.Second)
+	progressBy := scrapeDuration / *scrapeSpreadBy
+	generateLoop(hostGen, time.Duration(scrapeDuration),
+		time.Duration(progressBy), *newSeriesPercent, client, *remoteBatchSize)
 }
 
 func generateLoop(
 	generator *generators.HostsSimulator,
-	intervalSeconds int,
+	scrapeDuration time.Duration,
+	progressBy time.Duration,
 	newSeriesPercent float64,
 	remotePromClient *Client,
 	remotePromBatchSize int,
 ) {
-	series := generator.Generate(0, newSeriesPercent)
+	series := generator.Generate(0, scrapeDuration, newSeriesPercent)
 	remoteWrite(series, remotePromClient, remotePromBatchSize)
 
-	secTick := 1
-	for _ = range time.Tick(time.Second) {
-		go func(tick int) {
-			curTick := tick % intervalSeconds
-			series := generator.Generate(curTick, newSeriesPercent)
-			remoteWrite(series, remotePromClient, remotePromBatchSize)
-		}(secTick)
+	numWorkers := 1024
+	workers := make(chan struct{}, numWorkers)
+	for i := 0; i < numWorkers; i++ {
+		workers <- struct{}{}
+	}
 
-		secTick++
+	ticker := time.NewTicker(progressBy)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		series := generator.Generate(progressBy, scrapeDuration, newSeriesPercent)
+		select {
+		case token := <-workers:
+			go func() {
+				remoteWrite(series, remotePromClient, remotePromBatchSize)
+				workers <- token
+			}()
+		default:
+			// Too many active workers
+		}
 	}
 }
