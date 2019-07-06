@@ -75,7 +75,16 @@ func (h *HostsSimulator) Hosts() []devops.Host {
 	return append([]devops.Host{}, h.hosts...)
 }
 
-func (h *HostsSimulator) Generate(progressBy, scrapeDuration time.Duration, newSeriesPercent float64) []*prompb.TimeSeries {
+func (h *HostsSimulator) Generate(
+	progressBy, scrapeDuration time.Duration,
+	newSeriesPercent float64,
+) ([]*prompb.TimeSeries, error) {
+	if newSeriesPercent < 0 || newSeriesPercent > 1 {
+		return nil, fmt.Errorf(
+			"newSeriesPercent not between [0.0,1.0]: value=%v",
+			newSeriesPercent)
+	}
+
 	now := time.Now()
 	numHosts := int(float64(progressBy/scrapeDuration) * float64(len(h.allHosts)))
 	if len(h.hosts) == 0 {
@@ -156,5 +165,5 @@ func (h *HostsSimulator) Generate(progressBy, scrapeDuration time.Duration, newS
 		}
 	}
 
-	return allSeries
+	return allSeries, nil
 }

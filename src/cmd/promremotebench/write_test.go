@@ -37,6 +37,7 @@ import (
 	"github.com/golang/snappy"
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRemoteWrite(t *testing.T) {
@@ -105,7 +106,8 @@ func TestRemoteWrite(t *testing.T) {
 
 			hostGen := generators.NewHostsSimulator(test.numHosts, time.Now(),
 				generators.HostsSimulatorOptions{})
-			series := hostGen.Generate(time.Second, time.Second, 0)
+			series, err := hostGen.Generate(time.Second, time.Second, 0)
+			require.NoError(t, err)
 
 			batchSize := 10
 			expectedBatches := int(math.Ceil(float64(len(series)) / float64(batchSize)))

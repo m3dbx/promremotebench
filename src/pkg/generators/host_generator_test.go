@@ -25,12 +25,14 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestHostsSimulator(t *testing.T) {
 	start := time.Now()
 	s := NewHostsSimulator(1, start, HostsSimulatorOptions{})
 
-	series := s.Generate(time.Second, time.Second, 0)
+	series, err := s.Generate(time.Second, time.Second, 0)
+	require.NoError(t, err)
 	assert.True(t, len(series) > 0)
 }

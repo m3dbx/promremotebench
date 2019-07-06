@@ -45,7 +45,7 @@ func main() {
 		targetURL             = flag.String("target", "http://localhost:7201/receive", "Target remote write endpoint")
 		scrapeIntervalSeconds = flag.Float64("interval", 10.0, "Prom endpoint scrape interval in seconds")
 		numHosts              = flag.Int("hosts", 100, "Number of hosts to mimic scrapes from")
-		newSeriesPercent      = flag.Float64("new", 0.01, "Percentage of new series per scrape interval [0, 100]")
+		newSeriesPercent      = flag.Float64("new", 0.01, "Factor of new series per scrape interval [0.0, 1.0]")
 		remoteBatchSize       = flag.Int("batch", 128, "Number of metrics per batch send via remote write")
 		labels                = flag.String("labels", "{}", "Labels in JSON format to append to all metrics")
 		scrapeSpreadBy        = flag.Float64("spread", 10.0, "The number of times to spread the scrape interval by when emitting samples")
@@ -85,8 +85,8 @@ func main() {
 			log.Fatalf("could not parse env var: var=%s, err=%s", envNewSeriesPercent, err)
 		}
 	}
-	if *newSeriesPercent < 0 || *newSeriesPercent > 100 {
-		log.Fatalf("new series percentage must be in the range of [0, 100]")
+	if *newSeriesPercent < 0.0 || *newSeriesPercent > 1.0 {
+		log.Fatalf("new series percentage must be in the range of [0.0, 1.0]")
 	}
 	if v := os.Getenv(envLabelsJSON); v != "" {
 		*labels = v
@@ -123,7 +123,11 @@ func generateLoop(
 	remotePromClient *Client,
 	remotePromBatchSize int,
 ) {
-	series := generator.Generate(0, scrapeDuration, newSeriesPercent)
+	series, err := generator.Generate(0, scrapeDuration, newSeriesPercent)
+	if err != nil {
+		log.Fatalf("error generating load: %v", err)
+	}
+
 	remoteWrite(series, remotePromClient, remotePromBatchSize)
 
 	numWorkers := 1024
@@ -136,7 +140,11 @@ func generateLoop(
 	defer ticker.Stop()
 
 	for range ticker.C {
-		series := generator.Generate(progressBy, scrapeDuration, newSeriesPercent)
+		series, err := generator.Generate(progressBy, scrapeDuration, newSeriesPercent)
+		if err != nil {
+			log.Fatalf("error generating load: %v", err)
+		}
+
 		select {
 		case token := <-workers:
 			go func() {
