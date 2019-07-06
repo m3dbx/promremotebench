@@ -86,7 +86,7 @@ func (h *HostsSimulator) Generate(
 	}
 
 	now := time.Now()
-	numHosts := int(float64(progressBy/scrapeDuration) * float64(len(h.allHosts)))
+	numHosts := int(math.Ceil(float64(progressBy/scrapeDuration) * float64(len(h.allHosts))))
 	if len(h.hosts) == 0 {
 		// Out of hosts, remove/add hosts as needed and progress ticking
 		for _, host := range h.allHosts {
