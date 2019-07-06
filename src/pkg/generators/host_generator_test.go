@@ -36,3 +36,13 @@ func TestHostsSimulator(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, len(series) > 0)
 }
+
+func TestHostsSimulatorTenSeconds(t *testing.T) {
+	start := time.Now()
+	s := NewHostsSimulator(13, start, HostsSimulatorOptions{})
+	for i := 0; i < 100; i++ {
+		series, err := s.Generate(time.Second, 10*time.Second, 0.01)
+		require.NoError(t, err)
+		assert.True(t, len(series) > 0)
+	}
+}
