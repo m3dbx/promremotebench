@@ -24,6 +24,7 @@ import (
 	"encoding/json"
 	"flag"
 	"log"
+	"math"
 	"os"
 	"strconv"
 	"time"
@@ -38,6 +39,10 @@ const (
 	envRemoteBatchSize  = "PROMREMOTEBENCH_BATCH"
 	envNewSeriesPercent = "PROMREMOTEBENCH_NEW_SERIES_PERCENTAGE"
 	envLabelsJSON       = "PROMREMOTEBENCH_LABELS_JSON"
+
+	// maxNumScrapesActive determines how many scrapes
+	// at max to allow be active (fall behind by)
+	maxNumScrapesActive = 4
 )
 
 func main() {
@@ -123,14 +128,8 @@ func generateLoop(
 	remotePromClient *Client,
 	remotePromBatchSize int,
 ) {
-	series, err := generator.Generate(0, scrapeDuration, newSeriesPercent)
-	if err != nil {
-		log.Fatalf("error generating load: %v", err)
-	}
-
-	remoteWrite(series, remotePromClient, remotePromBatchSize)
-
-	numWorkers := 1024
+	numWorkers := maxNumScrapesActive *
+		int(math.Ceil(float64(scrapeDuration)/float64(progressBy)))
 	workers := make(chan struct{}, numWorkers)
 	for i := 0; i < numWorkers; i++ {
 		workers <- struct{}{}

@@ -32,9 +32,19 @@ func TestHostsSimulator(t *testing.T) {
 	start := time.Now()
 	s := NewHostsSimulator(1, start, HostsSimulatorOptions{})
 
-	series, err := s.Generate(time.Second, time.Second, 0)
-	require.NoError(t, err)
-	assert.True(t, len(series) > 0)
+	{
+		// Without offset
+		series, err := s.Generate(0, time.Second, 0)
+		require.NoError(t, err)
+		assert.True(t, len(series) > 0)
+	}
+
+	{
+		// With offset
+		series, err := s.Generate(time.Second, time.Second, 0)
+		require.NoError(t, err)
+		assert.True(t, len(series) > 0)
+	}
 }
 
 func TestHostsSimulatorTenSeconds(t *testing.T) {
