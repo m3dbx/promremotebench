@@ -22,8 +22,8 @@ package main
 
 import (
 	"fmt"
-	"math"
 	"io/ioutil"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -37,25 +37,26 @@ import (
 	"github.com/golang/snappy"
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRemoteWrite(t *testing.T) {
 	tests := []struct {
-		name string
-		numHosts int
+		name            string
+		numHosts        int
 		expectedBatches int
-		expectedSeries int
-	} {
+		expectedSeries  int
+	}{
 		{
-			name: "one host",
+			name:     "one host",
 			numHosts: 1,
 		},
 		{
-			name: "eleven hosts",
+			name:     "eleven hosts",
 			numHosts: 11,
 		},
 		{
-			name: "hundred hosts",
+			name:     "hundred hosts",
 			numHosts: 100,
 		},
 	}
@@ -65,7 +66,7 @@ func TestRemoteWrite(t *testing.T) {
 			numBatchesRecieved := 0
 			numTSRecieved := 0
 			var wg sync.WaitGroup
-		
+
 			server := httptest.NewServer(
 				http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					compressed, err := ioutil.ReadAll(r.Body)
@@ -73,42 +74,43 @@ func TestRemoteWrite(t *testing.T) {
 						http.Error(w, err.Error(), http.StatusInternalServerError)
 						return
 					}
-		
+
 					reqBuf, err := snappy.Decode(nil, compressed)
 					if err != nil {
 						http.Error(w, err.Error(), http.StatusBadRequest)
 						return
 					}
-		
+
 					var req prompb.WriteRequest
 					if err := proto.Unmarshal(reqBuf, &req); err != nil {
 						http.Error(w, err.Error(), http.StatusBadRequest)
 						return
 					}
-		
+
 					numBatchesRecieved++
 					numTSRecieved += len(req.Timeseries)
-		
+
 					wg.Done()
 				}),
 			)
-		
+
 			serverURL, err := url.Parse(server.URL)
 			if err != nil {
 				t.Fatal(err)
 			}
-		
+
 			remotePromClient, err := NewClient(serverURL.String(), time.Minute)
 			if err != nil {
 				t.Fatal(err)
 			}
-		
+
 			hostGen := generators.NewHostsSimulator(test.numHosts, time.Now(),
 				generators.HostsSimulatorOptions{})
-			series := hostGen.Generate(0)
+			series, err := hostGen.Generate(time.Second, time.Second, 0)
+			require.NoError(t, err)
 
 			batchSize := 10
-			expectedBatches := int(math.Ceil(float64(len(series))/float64(batchSize)))
+			expectedBatches := int(math.Ceil(float64(len(series)) / float64(batchSize)))
 
 			wg.Add(expectedBatches)
 			remoteWrite(series, remotePromClient, batchSize)

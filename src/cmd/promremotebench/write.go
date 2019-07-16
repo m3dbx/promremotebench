@@ -22,13 +22,12 @@ package main
 
 import (
 	"bufio"
-	"sync"
 	"bytes"
 	"context"
 	"fmt"
-	"log"
 	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"time"
 
@@ -42,22 +41,11 @@ import (
 
 func remoteWrite(series []*prompb.TimeSeries, remotePromClient *Client, remotePromBatchSize int) {
 	i := 0
-	wg := &sync.WaitGroup{}
 	for ; i < len(series)-remotePromBatchSize; i += remotePromBatchSize {
-		values := series[i:i+remotePromBatchSize]
-		wg.Add(1)
-		go func() {
-			remoteWriteBatch(values, remotePromClient)
-			wg.Done()
-		}()
+		remoteWriteBatch(series[i:i+remotePromBatchSize], remotePromClient)
 	}
 
-	// Write remainders
-	if len(series[i:]) > 0 {
-		remoteWriteBatch(series[i:], remotePromClient)
-	}
-
-	wg.Wait()
+	remoteWriteBatch(series[i:], remotePromClient)
 }
 
 func remoteWriteBatch(series []*prompb.TimeSeries, remotePromClient *Client) {

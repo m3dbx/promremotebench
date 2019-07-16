@@ -22,6 +22,8 @@ package generators
 
 import (
 	"fmt"
+	"math"
+	"math/rand"
 	"time"
 
 	"github.com/influxdata/influxdb-comparisons/bulk_data_gen/common"
@@ -32,7 +34,8 @@ import (
 )
 
 type HostsSimulator struct {
-	hosts                 []devops.Host
+	hosts        []devops.Host
+	allHosts     []devops.Host
 	appendLabels []*prompb.Label
 }
 
@@ -41,13 +44,13 @@ type HostsSimulatorOptions struct {
 }
 
 func NewHostsSimulator(
-	hostCount int, 
+	hostCount int,
 	start time.Time,
 	opts HostsSimulatorOptions,
 ) *HostsSimulator {
 	var hosts []devops.Host
 	for i := 0; i < hostCount; i++ {
-		host := devops.NewHost(i, 0, start)
+		host := devops.NewHost(rand.Int(), 0, start)
 		hosts = append(hosts, host)
 	}
 
@@ -55,14 +58,15 @@ func NewHostsSimulator(
 	if opts.Labels != nil {
 		for k, v := range opts.Labels {
 			appendLabels = append(appendLabels, &prompb.Label{
-				Name: k,
+				Name:  k,
 				Value: v,
 			})
 		}
 	}
 
 	return &HostsSimulator{
-		hosts: hosts,
+		hosts:        hosts,
+		allHosts:     hosts,
 		appendLabels: appendLabels,
 	}
 }
@@ -71,14 +75,52 @@ func (h *HostsSimulator) Hosts() []devops.Host {
 	return append([]devops.Host{}, h.hosts...)
 }
 
-func (h *HostsSimulator) Generate(progressBy time.Duration) []*prompb.TimeSeries {
-	nowUnixMilliseconds := time.Now().UnixNano() / int64(time.Millisecond)
-	allSeries := make([]*prompb.TimeSeries, 0, len(h.hosts)*len(h.hosts[0].SimulatedMeasurements))
-	for _, host := range h.hosts {
-		if progressBy > 0 {
+func (h *HostsSimulator) Generate(
+	progressBy, scrapeDuration time.Duration,
+	newSeriesPercent float64,
+) ([]*prompb.TimeSeries, error) {
+	if newSeriesPercent < 0 || newSeriesPercent > 1 {
+		return nil, fmt.Errorf(
+			"newSeriesPercent not between [0.0,1.0]: value=%v",
+			newSeriesPercent)
+	}
+
+	now := time.Now()
+	factorProgress := float64(progressBy) / float64(scrapeDuration)
+	numHosts := int(math.Ceil(factorProgress * float64(len(h.allHosts))))
+	if numHosts == 0 {
+		// Always progress by at least one
+		numHosts = 1
+	}
+	if len(h.hosts) == 0 {
+		// Out of hosts, remove/add hosts as needed and progress ticking
+		for _, host := range h.allHosts {
 			host.TickAll(progressBy)
 		}
+		if newSeriesPercent > 0 {
+			remove := int(math.Ceil(newSeriesPercent * float64(len(h.allHosts))))
+			h.allHosts = h.allHosts[:len(h.allHosts)-remove]
+			for i := 0; i < remove; i++ {
+				newHost := devops.NewHost(rand.Int(), 0, now)
+				h.allHosts = append(h.allHosts, newHost)
+			}
+		}
+		// Reset hosts
+		h.hosts = h.allHosts
+	}
+	if len(h.hosts) < numHosts {
+		numHosts = len(h.hosts)
+	}
 
+	// Select hosts
+	sendFromHosts := h.hosts[:numHosts]
+
+	// Progress hosts
+	h.hosts = h.hosts[numHosts:]
+
+	nowUnixMilliseconds := now.UnixNano() / int64(time.Millisecond)
+	allSeries := make([]*prompb.TimeSeries, 0, len(sendFromHosts)*len(sendFromHosts[0].SimulatedMeasurements))
+	for _, host := range sendFromHosts {
 		for _, measurement := range host.SimulatedMeasurements {
 			p := common.MakeUsablePoint()
 			measurement.ToPoint(p)
@@ -128,5 +170,5 @@ func (h *HostsSimulator) Generate(progressBy time.Duration) []*prompb.TimeSeries
 		}
 	}
 
-	return allSeries
+	return allSeries, nil
 }
