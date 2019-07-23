@@ -10,6 +10,8 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway v1.9.0 // indirect
 	github.com/influxdata/influxdb-comparisons v0.0.0-20190315104205-27ebcc6f3c08
 	github.com/pkg/errors v0.8.1
+	github.com/prometheus/client_golang v0.9.1
+	github.com/prometheus/client_model v0.0.0-20180712105110-5c3871d89910
 	github.com/prometheus/common v0.4.0
 	github.com/prometheus/prometheus v2.5.0+incompatible
 	github.com/stretchr/testify v1.2.2

@@ -25,14 +25,22 @@ import (
 	"flag"
 	"log"
 	"math"
+	"net/http"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"promremotebench/pkg/generators"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	dto "github.com/prometheus/client_model/go"
+	"github.com/prometheus/prometheus/pkg/labels"
 )
 
 const (
+	envScrapeServer     = "PROMREMOTEBENCH_SCRAPE_SERVER"
 	envTarget           = "PROMREMOTEBENCH_TARGET"
 	envInterval         = "PROMREMOTEBENCH_INTERVAL"
 	envNumHosts         = "PROMREMOTEBENCH_NUM_HOSTS"
@@ -47,13 +55,14 @@ const (
 
 func main() {
 	var (
-		targetURL             = flag.String("target", "http://localhost:7201/receive", "Target remote write endpoint")
-		scrapeIntervalSeconds = flag.Float64("interval", 10.0, "Prom endpoint scrape interval in seconds")
+		scrapeServer          = flag.String("scrape-server", "", "Listen address for scrape HTTP server (instead of remote write)")
+		targetURL             = flag.String("target", "http://localhost:7201/receive", "Target remote write endpoint (for remote write)")
 		numHosts              = flag.Int("hosts", 100, "Number of hosts to mimic scrapes from")
-		newSeriesPercent      = flag.Float64("new", 0.01, "Factor of new series per scrape interval [0.0, 1.0]")
-		remoteBatchSize       = flag.Int("batch", 128, "Number of metrics per batch send via remote write")
 		labels                = flag.String("labels", "{}", "Labels in JSON format to append to all metrics")
-		scrapeSpreadBy        = flag.Float64("spread", 10.0, "The number of times to spread the scrape interval by when emitting samples")
+		newSeriesPercent      = flag.Float64("new", 0.01, "Factor of new series per scrape interval [0.0, 1.0]")
+		scrapeIntervalSeconds = flag.Float64("interval", 10.0, "Prom endpoint scrape interval in seconds (for remote write)")
+		remoteBatchSize       = flag.Int("batch", 128, "Number of metrics per batch send via remote write (for remote write)")
+		scrapeSpreadBy        = flag.Float64("spread", 10.0, "The number of times to spread the scrape interval by when emitting samples (for remote write)")
 	)
 
 	flag.Parse()
@@ -63,6 +72,9 @@ func main() {
 	}
 
 	var err error
+	if v := os.Getenv(envScrapeServer); v != "" {
+		*scrapeServer = v
+	}
 	if v := os.Getenv(envTarget); v != "" {
 		*targetURL = v
 	}
@@ -115,9 +127,23 @@ func main() {
 	}
 
 	scrapeDuration := *scrapeIntervalSeconds * float64(time.Second)
-	progressBy := scrapeDuration / *scrapeSpreadBy
-	generateLoop(hostGen, time.Duration(scrapeDuration),
-		time.Duration(progressBy), *newSeriesPercent, client, *remoteBatchSize)
+	if *scrapeServer == "" {
+		log.Println("starting remote write load")
+		progressBy := scrapeDuration / *scrapeSpreadBy
+		generateLoop(hostGen, time.Duration(scrapeDuration),
+			time.Duration(progressBy), *newSeriesPercent, client, *remoteBatchSize)
+	} else {
+		log.Println("starting scrape server", *scrapeServer)
+		gatherer := newGatherer(hostGen,
+			time.Duration(scrapeDuration), *newSeriesPercent)
+		handler := promhttp.HandlerFor(gatherer, promhttp.HandlerOpts{
+			ErrorHandling: promhttp.PanicOnError,
+		})
+		err := http.ListenAndServe(*scrapeServer, handler)
+		if err != nil {
+			log.Fatalf("scrape server error: %v", err)
+		}
+	}
 }
 
 func generateLoop(
@@ -154,4 +180,87 @@ func generateLoop(
 			// Too many active workers
 		}
 	}
+}
+
+func newGatherer(
+	generator *generators.HostsSimulator,
+	scrapeIntervalExpected time.Duration,
+	newSeriesPercent float64,
+) prometheus.Gatherer {
+	return &gatherer{
+		generator:              generator,
+		scrapeIntervalExpected: scrapeIntervalExpected,
+		newSeriesPercent:       newSeriesPercent,
+	}
+}
+
+type gatherer struct {
+	sync.Mutex
+	generator              *generators.HostsSimulator
+	scrapeIntervalExpected time.Duration
+	newSeriesPercent       float64
+}
+
+func (g *gatherer) Gather() ([]*dto.MetricFamily, error) {
+	g.Lock()
+	defer g.Unlock()
+
+	interval := g.scrapeIntervalExpected
+
+	series, err := g.generator.Generate(interval, interval,
+		g.newSeriesPercent)
+	if err != nil {
+		log.Fatalf("error generating load: %v", err)
+	}
+
+	families := make(map[string]*dto.MetricFamily)
+	gauge := dto.MetricType_GAUGE
+	for i := range series {
+		var family *dto.MetricFamily
+
+		for j := range series[i].Labels {
+			name := series[i].Labels[j].Name
+			if name == labels.MetricName {
+				var ok bool
+				family, ok = families[name]
+				if !ok {
+					family = &dto.MetricFamily{
+						Name: &name,
+						Type: &gauge,
+					}
+					families[name] = family
+				}
+				break
+			}
+		}
+
+		if family == nil {
+			log.Fatal("no metric family found for metric")
+		}
+
+		labels := make([]*dto.LabelPair, 0, len(series[i].Labels))
+		for j := range series[i].Labels {
+			label := &dto.LabelPair{
+				Name:  &series[i].Labels[j].Name,
+				Value: &series[i].Labels[j].Value,
+			}
+			labels = append(labels, label)
+		}
+
+		for _, sample := range series[i].Samples {
+			metric := &dto.Metric{
+				Label: labels,
+				Gauge: &dto.Gauge{
+					Value: &sample.Value,
+				},
+			}
+			family.Metric = append(family.Metric, metric)
+		}
+	}
+
+	results := make([]*dto.MetricFamily, 0, len(families))
+	for _, family := range families {
+		results = append(results, family)
+	}
+	return results, nil
 }

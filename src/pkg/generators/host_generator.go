@@ -140,6 +140,8 @@ func (h *HostsSimulator) Generate(
 				}
 
 				labels := []*prompb.Label{
+					&prompb.Label{Name: labels.MetricName, Value: string(p.MeasurementName)},
+					&prompb.Label{Name: "measurement", Value: string(fieldName)},
 					&prompb.Label{Name: string(devops.MachineTagKeys[0]), Value: string(host.Name)},
 					&prompb.Label{Name: string(devops.MachineTagKeys[1]), Value: string(host.Region)},
 					&prompb.Label{Name: string(devops.MachineTagKeys[2]), Value: string(host.Datacenter)},
@@ -150,8 +152,6 @@ func (h *HostsSimulator) Generate(
 					&prompb.Label{Name: string(devops.MachineTagKeys[7]), Value: string(host.Service)},
 					&prompb.Label{Name: string(devops.MachineTagKeys[8]), Value: string(host.ServiceVersion)},
 					&prompb.Label{Name: string(devops.MachineTagKeys[9]), Value: string(host.ServiceEnvironment)},
-					&prompb.Label{Name: "measurement", Value: string(fieldName)},
-					&prompb.Label{Name: labels.MetricName, Value: string(p.MeasurementName)},
 				}
 				if len(h.appendLabels) > 0 {
 					labels = append(labels, h.appendLabels...)
