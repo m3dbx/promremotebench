@@ -23,7 +23,7 @@ package generators
 import (
 	"fmt"
 	"math"
-	"math/rand"
+	"sync"
 	"time"
 
 	"github.com/influxdata/influxdb-comparisons/bulk_data_gen/common"
@@ -34,9 +34,11 @@ import (
 )
 
 type HostsSimulator struct {
+	sync.RWMutex
 	hosts        []devops.Host
 	allHosts     []devops.Host
 	appendLabels []*prompb.Label
+	hostIndex    int
 }
 
 type HostsSimulatorOptions struct {
@@ -50,7 +52,7 @@ func NewHostsSimulator(
 ) *HostsSimulator {
 	var hosts []devops.Host
 	for i := 0; i < hostCount; i++ {
-		host := devops.NewHost(rand.Int(), 0, start)
+		host := devops.NewHost(i, 0, start)
 		hosts = append(hosts, host)
 	}
 
@@ -68,10 +70,20 @@ func NewHostsSimulator(
 		hosts:        hosts,
 		allHosts:     hosts,
 		appendLabels: appendLabels,
+		hostIndex:    hostCount,
 	}
 }
 
+func (h *HostsSimulator) nextHostIndexWithLock() int {
+	v := h.hostIndex
+	h.hostIndex++
+	return v
+}
+
 func (h *HostsSimulator) Hosts() []devops.Host {
+	h.RLock()
+	defer h.RUnlock()
+
 	return append([]devops.Host{}, h.hosts...)
 }
 
@@ -79,6 +91,9 @@ func (h *HostsSimulator) Generate(
 	progressBy, scrapeDuration time.Duration,
 	newSeriesPercent float64,
 ) ([]*prompb.TimeSeries, error) {
+	h.Lock()
+	defer h.Unlock()
+
 	if newSeriesPercent < 0 || newSeriesPercent > 1 {
 		return nil, fmt.Errorf(
 			"newSeriesPercent not between [0.0,1.0]: value=%v",
@@ -101,7 +116,8 @@ func (h *HostsSimulator) Generate(
 			remove := int(math.Ceil(newSeriesPercent * float64(len(h.allHosts))))
 			h.allHosts = h.allHosts[:len(h.allHosts)-remove]
 			for i := 0; i < remove; i++ {
-				newHost := devops.NewHost(rand.Int(), 0, now)
+				newHostIndex := h.nextHostIndexWithLock()
+				newHost := devops.NewHost(newHostIndex, 0, now)
 				h.allHosts = append(h.allHosts, newHost)
 			}
 		}

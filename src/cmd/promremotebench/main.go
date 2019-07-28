@@ -47,6 +47,7 @@ const (
 	envRemoteBatchSize  = "PROMREMOTEBENCH_BATCH"
 	envNewSeriesPercent = "PROMREMOTEBENCH_NEW_SERIES_PERCENTAGE"
 	envLabelsJSON       = "PROMREMOTEBENCH_LABELS_JSON"
+	envLabelsJSONEnv    = "PROMREMOTEBENCH_LABELS_JSON_ENV"
 
 	// maxNumScrapesActive determines how many scrapes
 	// at max to allow be active (fall behind by)
@@ -59,6 +60,7 @@ func main() {
 		targetURL             = flag.String("target", "http://localhost:7201/receive", "Target remote write endpoint (for remote write)")
 		numHosts              = flag.Int("hosts", 100, "Number of hosts to mimic scrapes from")
 		labels                = flag.String("labels", "{}", "Labels in JSON format to append to all metrics")
+		labelsFromEnv         = flag.String("labels-env", "{}", "Labels in JSON format, with the string values as environment variable names, to append to all metrics")
 		newSeriesPercent      = flag.Float64("new", 0.01, "Factor of new series per scrape interval [0.0, 1.0]")
 		scrapeIntervalSeconds = flag.Float64("interval", 10.0, "Prom endpoint scrape interval in seconds (for remote write)")
 		remoteBatchSize       = flag.Int("batch", 128, "Number of metrics per batch send via remote write (for remote write)")
@@ -108,10 +110,25 @@ func main() {
 	if v := os.Getenv(envLabelsJSON); v != "" {
 		*labels = v
 	}
+	if v := os.Getenv(envLabelsJSONEnv); v != "" {
+		*labelsFromEnv = v
+	}
 
 	var parsedLabels map[string]string
 	if err := json.Unmarshal([]byte(*labels), &parsedLabels); err != nil {
-		log.Fatalf("could not parse fixed added labels: %v", err)
+		log.Fatalf("could not parse fixed set labels: %v", err)
+	}
+
+	var parsedLabelsFromEnv map[string]string
+	if err := json.Unmarshal([]byte(*labelsFromEnv), &parsedLabelsFromEnv); err != nil {
+		log.Fatalf("could not parse fixed env labels: %v", err)
+	}
+	for k, v := range parsedLabelsFromEnv {
+		envValue := os.Getenv(v)
+		if envValue == "" {
+			log.Fatalf("label value for env label not set: %s", k)
+		}
+		parsedLabels[k] = envValue
 	}
 
 	now := time.Now()
