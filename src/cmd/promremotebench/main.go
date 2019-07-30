@@ -91,7 +91,7 @@ func main() {
 		queryLabels        = flag.String("query-labels", "{}", "Labels in JSON format to use in all queries")
 		queryLabelsFromEnv = flag.String("query-labels-env", "{}", "Labels in JSON format, with the string values as environment variable names, to use in all queries")
 		queryHeaders       = flag.String("query-headers", "{}", "Query headers in JSON format to send with each request")
-		querySleep         = flag.Duration("query-sleep", 10*time.Millisecond, "Query time to sleep between finishing one query and executing the next")
+		querySleep         = flag.Duration("query-sleep", time.Second, "Query time to sleep between finishing one query and executing the next")
 		queryDebug         = flag.Bool("query-debug", false, "Query debug flag to print out the first few characters of a query response")
 		queryDebugLength   = flag.Int("query-debug-length", 128, "Query debug character length to print, use zero to print entire response")
 	)
