@@ -96,7 +96,7 @@ func (q *queryExecutor) workerLoop() {
 
 	pickedHosts := make(map[int]struct{})
 
-	var query strings.Builder
+	query := new(strings.Builder)
 	for i := 0; ; i++ {
 		func() {
 			// Exec in func to be able to use defer.
@@ -209,7 +209,7 @@ func (q *queryExecutor) workerLoop() {
 	}
 }
 
-func mustWriteString(w strings.Builder, v string) {
+func mustWriteString(w *strings.Builder, v string) {
 	_, err := w.WriteString(v)
 	if err != nil {
 		panic(err)
