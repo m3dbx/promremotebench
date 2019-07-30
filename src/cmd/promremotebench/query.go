@@ -131,14 +131,13 @@ func (q *queryExecutor) workerLoop() {
 
 			// Write the common labels
 			for j := 0; j < len(labels); j++ {
+				mustWriteString(query, ",")
+
 				l := labels[j]
 				mustWriteString(query, l.name)
 				mustWriteString(query, "=\"")
 				mustWriteString(query, l.value)
 				mustWriteString(query, "\"")
-				if i < len(labels)-1 {
-					mustWriteString(query, ",")
-				}
 			}
 
 			if q.Aggregation != "" {
