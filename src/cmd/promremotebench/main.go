@@ -23,31 +23,42 @@ package main
 import (
 	"encoding/json"
 	"flag"
-	"log"
-	"math"
 	"net/http"
 	"os"
 	"strconv"
-	"sync"
 	"time"
 
 	"promremotebench/pkg/generators"
 
-	"github.com/prometheus/client_golang/prometheus"
+	"github.com/m3db/m3/src/x/instrument"
+	xos "github.com/m3db/m3/src/x/os"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	dto "github.com/prometheus/client_model/go"
-	"github.com/prometheus/prometheus/pkg/labels"
+	"go.uber.org/zap"
 )
 
 const (
-	envScrapeServer     = "PROMREMOTEBENCH_SCRAPE_SERVER"
-	envTarget           = "PROMREMOTEBENCH_TARGET"
-	envInterval         = "PROMREMOTEBENCH_INTERVAL"
-	envNumHosts         = "PROMREMOTEBENCH_NUM_HOSTS"
-	envRemoteBatchSize  = "PROMREMOTEBENCH_BATCH"
-	envNewSeriesPercent = "PROMREMOTEBENCH_NEW_SERIES_PERCENTAGE"
-	envLabelsJSON       = "PROMREMOTEBENCH_LABELS_JSON"
-	envLabelsJSONEnv    = "PROMREMOTEBENCH_LABELS_JSON_ENV"
+	envWrite              = "PROMREMOTEBENCH_WRITE"
+	envQuery              = "PROMREMOTEBENCH_QUERY"
+	envTarget             = "PROMREMOTEBENCH_TARGET"
+	envScrapeServer       = "PROMREMOTEBENCH_SCRAPE_SERVER"
+	envQueryTarget        = "PROMREMOTEBENCH_QUERY_TARGET"
+	envInterval           = "PROMREMOTEBENCH_INTERVAL"
+	envNumHosts           = "PROMREMOTEBENCH_NUM_HOSTS"
+	envRemoteBatchSize    = "PROMREMOTEBENCH_BATCH"
+	envNewSeriesPercent   = "PROMREMOTEBENCH_NEW_SERIES_PERCENTAGE"
+	envLabelsJSON         = "PROMREMOTEBENCH_LABELS_JSON"
+	envLabelsJSONEnv      = "PROMREMOTEBENCH_LABELS_JSON_ENV"
+	envQueryConcurrency   = "PROMREMOTEBENCH_QUERY_CONCURRENCY"
+	envQueryNumSeries     = "PROMREMOTEBENCH_QUERY_NUM_SERIES"
+	envQueryStep          = "PROMREMOTEBENCH_QUERY_STEP"
+	envQueryRange         = "PROMREMOTEBENCH_QUERY_RANGE"
+	envQueryAggregation   = "PROMREMOTEBENCH_QUERY_AGGREGATION"
+	envQueryLabelsJSON    = "PROMREMOTEBENCH_QUERY_LABELS_JSON"
+	envQueryLabelsJSONEnv = "PROMREMOTEBENCH_QUERY_LABELS_JSON_ENV"
+	envQueryHeaders       = "PROMREMOTEBENCH_QUERY_HEADERS_JSON"
+	envQuerySleep         = "PROMREMOTEBENCH_QUERY_SLEEP"
+	envQueryDebug         = "PROMREMOTEBENCH_QUERY_DEBUG"
+	envQueryDebugLength   = "PROMREMOTEBENCH_QUERY_DEBUG_LENGTH"
 
 	// maxNumScrapesActive determines how many scrapes
 	// at max to allow be active (fall behind by)
@@ -56,8 +67,12 @@ const (
 
 func main() {
 	var (
-		scrapeServer          = flag.String("scrape-server", "", "Listen address for scrape HTTP server (instead of remote write)")
+		write = flag.Bool("write", true, "enable write load benchmarking")
+		query = flag.Bool("query", false, "enable query load benchmarking")
+
+		// write options
 		targetURL             = flag.String("target", "http://localhost:7201/receive", "Target remote write endpoint (for remote write)")
+		scrapeServer          = flag.String("scrape-server", "", "Listen address for scrape HTTP server (instead of remote write)")
 		numHosts              = flag.Int("hosts", 100, "Number of hosts to mimic scrapes from")
 		labels                = flag.String("labels", "{}", "Labels in JSON format to append to all metrics")
 		labelsFromEnv         = flag.String("labels-env", "{}", "Labels in JSON format, with the string values as environment variable names, to append to all metrics")
@@ -65,6 +80,20 @@ func main() {
 		scrapeIntervalSeconds = flag.Float64("interval", 10.0, "Prom endpoint scrape interval in seconds (for remote write)")
 		remoteBatchSize       = flag.Int("batch", 128, "Number of metrics per batch send via remote write (for remote write)")
 		scrapeSpreadBy        = flag.Float64("spread", 10.0, "The number of times to spread the scrape interval by when emitting samples (for remote write)")
+
+		// query options
+		queryTargetURL     = flag.String("query-target", "http://localhost:7201/query_range", "Target query endpoint (for exercising by proxy remote read)")
+		queryConcurrency   = flag.Int("query-concurrency", 10, "Query concurrency value")
+		queryNumSeries     = flag.Int("query-num-series", 500, "Query number of series (will round up to nearest 100), cannot exceed the number of 100*write_num_hosts (since each host sends 100 or so metrics)")
+		queryStep          = flag.Duration("query-step", time.Minute, "Query step size")
+		queryRange         = flag.Duration("query-range", 12*time.Hour, "Query time range size (from now backwards)")
+		queryAggregation   = flag.String("query-aggregation", "sum", "Query aggregation")
+		queryLabels        = flag.String("query-labels", "{}", "Labels in JSON format to use in all queries")
+		queryLabelsFromEnv = flag.String("query-labels-env", "{}", "Labels in JSON format, with the string values as environment variable names, to use in all queries")
+		queryHeaders       = flag.String("query-headers", "{}", "Query headers in JSON format to send with each request")
+		querySleep         = flag.Duration("query-sleep", 10*time.Millisecond, "Query time to sleep between finishing one query and executing the next")
+		queryDebug         = flag.Bool("query-debug", false, "Query debug flag to print out the first few characters of a query response")
+		queryDebugLength   = flag.Int("query-debug-length", 128, "Query debug character length to print, use zero to print entire response")
 	)
 
 	flag.Parse()
@@ -73,39 +102,66 @@ func main() {
 		os.Exit(-1)
 	}
 
-	var err error
-	if v := os.Getenv(envScrapeServer); v != "" {
-		*scrapeServer = v
+	var (
+		logger = instrument.NewOptions().Logger()
+		err    error
+	)
+
+	// Parse env var overrides.
+	if v := os.Getenv(envWrite); v != "" {
+		*write, err = strconv.ParseBool(v)
+		if err != nil {
+			logger.Fatal("could not parse env var",
+				zap.String("var", envWrite), zap.Error(err))
+		}
+	}
+	if v := os.Getenv(envQuery); v != "" {
+		*query, err = strconv.ParseBool(v)
+		if err != nil {
+			logger.Fatal("could not parse env var",
+				zap.String("var", envQuery), zap.Error(err))
+		}
 	}
 	if v := os.Getenv(envTarget); v != "" {
 		*targetURL = v
 	}
+	if v := os.Getenv(envScrapeServer); v != "" {
+		*scrapeServer = v
+	}
+	if v := os.Getenv(envQueryTarget); v != "" {
+		*queryTargetURL = v
+	}
 	if v := os.Getenv(envInterval); v != "" {
 		*scrapeIntervalSeconds, err = strconv.ParseFloat(v, 64)
 		if err != nil {
-			log.Fatalf("could not parse env var: var=%s, err=%s", envInterval, err)
+			logger.Fatal("could not parse env var",
+				zap.String("var", envInterval), zap.Error(err))
 		}
 	}
 	if v := os.Getenv(envNumHosts); v != "" {
 		*numHosts, err = strconv.Atoi(v)
 		if err != nil {
-			log.Fatalf("could not parse env var: var=%s, err=%s", envNumHosts, err)
+			logger.Fatal("could not parse env var",
+				zap.String("var", envNumHosts), zap.Error(err))
 		}
 	}
 	if v := os.Getenv(envRemoteBatchSize); v != "" {
 		*remoteBatchSize, err = strconv.Atoi(v)
 		if err != nil {
-			log.Fatalf("could not parse env var: var=%s, err=%s", envRemoteBatchSize, err)
+			logger.Fatal("could not parse env var",
+				zap.String("var", envRemoteBatchSize), zap.Error(err))
 		}
 	}
 	if v := os.Getenv(envNewSeriesPercent); v != "" {
 		*newSeriesPercent, err = strconv.ParseFloat(v, 64)
 		if err != nil {
-			log.Fatalf("could not parse env var: var=%s, err=%s", envNewSeriesPercent, err)
+			logger.Fatal("could not parse env var",
+				zap.String("var", envNewSeriesPercent), zap.Error(err))
 		}
 	}
 	if *newSeriesPercent < 0.0 || *newSeriesPercent > 1.0 {
-		log.Fatalf("new series percentage must be in the range of [0.0, 1.0]")
+		logger.Fatal("new series percentage must be in the range of [0.0, 1.0]",
+			zap.Float64("value", *newSeriesPercent))
 	}
 	if v := os.Getenv(envLabelsJSON); v != "" {
 		*labels = v
@@ -113,171 +169,167 @@ func main() {
 	if v := os.Getenv(envLabelsJSONEnv); v != "" {
 		*labelsFromEnv = v
 	}
-
-	var parsedLabels map[string]string
-	if err := json.Unmarshal([]byte(*labels), &parsedLabels); err != nil {
-		log.Fatalf("could not parse fixed set labels: %v", err)
-	}
-
-	var parsedLabelsFromEnv map[string]string
-	if err := json.Unmarshal([]byte(*labelsFromEnv), &parsedLabelsFromEnv); err != nil {
-		log.Fatalf("could not parse fixed env labels: %v", err)
-	}
-	for k, v := range parsedLabelsFromEnv {
-		envValue := os.Getenv(v)
-		if envValue == "" {
-			log.Fatalf("label value for env label not set: %s", k)
+	if v := os.Getenv(envQueryConcurrency); v != "" {
+		*queryConcurrency, err = strconv.Atoi(v)
+		if err != nil {
+			logger.Fatal("could not parse env var",
+				zap.String("var", envQueryConcurrency), zap.Error(err))
 		}
-		parsedLabels[k] = envValue
+	}
+	if v := os.Getenv(envQueryNumSeries); v != "" {
+		*queryNumSeries, err = strconv.Atoi(v)
+		if err != nil {
+			logger.Fatal("could not parse env var",
+				zap.String("var", envQueryNumSeries), zap.Error(err))
+		}
+	}
+	if v := os.Getenv(envQueryStep); v != "" {
+		*queryStep, err = time.ParseDuration(v)
+		if err != nil {
+			logger.Fatal("could not parse env var",
+				zap.String("var", envQueryStep), zap.Error(err))
+		}
+	}
+	if v := os.Getenv(envQueryRange); v != "" {
+		*queryRange, err = time.ParseDuration(v)
+		if err != nil {
+			logger.Fatal("could not parse env var",
+				zap.String("var", envQueryRange), zap.Error(err))
+		}
+	}
+	if v := os.Getenv(envQueryAggregation); v != "" {
+		*queryAggregation = v
+	}
+	if v := os.Getenv(envQueryLabelsJSON); v != "" {
+		*queryLabels = v
+	}
+	if v := os.Getenv(envQueryLabelsJSONEnv); v != "" {
+		*queryLabelsFromEnv = v
+	}
+	if v := os.Getenv(envQueryHeaders); v != "" {
+		*queryHeaders = v
+	}
+	if v := os.Getenv(envQuerySleep); v != "" {
+		*querySleep, err = time.ParseDuration(v)
+		if err != nil {
+			logger.Fatal("could not parse env var",
+				zap.String("var", envQuerySleep), zap.Error(err))
+		}
+	}
+	if v := os.Getenv(envQueryDebug); v != "" {
+		*queryDebug, err = strconv.ParseBool(v)
+		if err != nil {
+			logger.Fatal("could not parse env var",
+				zap.String("var", envQueryDebug), zap.Error(err))
+		}
+	}
+	if v := os.Getenv(envQueryDebugLength); v != "" {
+		*queryDebugLength, err = strconv.Atoi(v)
+		if err != nil {
+			logger.Fatal("could not parse env var",
+				zap.String("var", envQueryDebugLength), zap.Error(err))
+		}
 	}
 
+	// Parse opts further.
+	parsedLabels := parseLabels(*labels, *labelsFromEnv, logger)
+	parsedQueryLabels := parseLabels(*queryLabels, *queryLabelsFromEnv, logger)
+
+	var parsedQueryHeaders map[string]string
+	if err := json.Unmarshal([]byte(*queryHeaders), &parsedQueryHeaders); err != nil {
+		logger.Fatal("could not parse fixed query headers", zap.Error(err))
+	}
+
+	// Create structures.
 	now := time.Now()
 	hostGen := generators.NewHostsSimulator(*numHosts, now,
 		generators.HostsSimulatorOptions{Labels: parsedLabels})
 	client, err := NewClient(*targetURL, time.Minute)
 	if err != nil {
-		log.Fatalf("error creating remote client: %v", err)
+		logger.Fatal("error creating remote client",
+			zap.Error(err))
 	}
 
+	var hosts []string
 	for _, host := range hostGen.Hosts() {
-		log.Println("simulating host", host.Name)
+		hosts = append(hosts, string(host.Name))
 	}
+	logger.Info("simulating hosts",
+		zap.Strings("hosts", hosts))
 
-	scrapeDuration := *scrapeIntervalSeconds * float64(time.Second)
-	if *scrapeServer == "" {
-		log.Println("starting remote write load")
-		progressBy := scrapeDuration / *scrapeSpreadBy
-		generateLoop(hostGen, time.Duration(scrapeDuration),
-			time.Duration(progressBy), *newSeriesPercent, client, *remoteBatchSize)
-	} else {
-		log.Println("starting scrape server", *scrapeServer)
-		gatherer := newGatherer(hostGen,
-			time.Duration(scrapeDuration), *newSeriesPercent)
-		handler := promhttp.HandlerFor(gatherer, promhttp.HandlerOpts{
-			ErrorHandling: promhttp.PanicOnError,
-		})
-		err := http.ListenAndServe(*scrapeServer, handler)
-		if err != nil {
-			log.Fatalf("scrape server error: %v", err)
-		}
-	}
-}
-
-func generateLoop(
-	generator *generators.HostsSimulator,
-	scrapeDuration time.Duration,
-	progressBy time.Duration,
-	newSeriesPercent float64,
-	remotePromClient *Client,
-	remotePromBatchSize int,
-) {
-	numWorkers := maxNumScrapesActive *
-		int(math.Ceil(float64(scrapeDuration)/float64(progressBy)))
-	workers := make(chan struct{}, numWorkers)
-	for i := 0; i < numWorkers; i++ {
-		workers <- struct{}{}
-	}
-
-	ticker := time.NewTicker(progressBy)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		series, err := generator.Generate(progressBy, scrapeDuration, newSeriesPercent)
-		if err != nil {
-			log.Fatalf("error generating load: %v", err)
-		}
-
-		select {
-		case token := <-workers:
-			go func() {
-				remoteWrite(series, remotePromClient, remotePromBatchSize)
-				workers <- token
-			}()
-		default:
-			// Too many active workers
-		}
-	}
-}
-
-func newGatherer(
-	generator *generators.HostsSimulator,
-	scrapeIntervalExpected time.Duration,
-	newSeriesPercent float64,
-) prometheus.Gatherer {
-	return &gatherer{
-		generator:              generator,
-		scrapeIntervalExpected: scrapeIntervalExpected,
-		newSeriesPercent:       newSeriesPercent,
-	}
-}
-
-type gatherer struct {
-	sync.Mutex
-	generator              *generators.HostsSimulator
-	scrapeIntervalExpected time.Duration
-	newSeriesPercent       float64
-}
-
-func (g *gatherer) Gather() ([]*dto.MetricFamily, error) {
-	g.Lock()
-	defer g.Unlock()
-
-	interval := g.scrapeIntervalExpected
-
-	series, err := g.generator.Generate(interval, interval,
-		g.newSeriesPercent)
-	if err != nil {
-		log.Fatalf("error generating load: %v", err)
-	}
-
-	families := make(map[string]*dto.MetricFamily)
-	gauge := dto.MetricType_GAUGE
-	for i := range series {
-		var family *dto.MetricFamily
-
-		for j := range series[i].Labels {
-			name := series[i].Labels[j].Name
-			if name == labels.MetricName {
-				var ok bool
-				family, ok = families[name]
-				if !ok {
-					family = &dto.MetricFamily{
-						Name: &name,
-						Type: &gauge,
-					}
-					families[name] = family
+	// Start workloads.
+	if *write {
+		go func() {
+			scrapeDuration := *scrapeIntervalSeconds * float64(time.Second)
+			if *scrapeServer == "" {
+				logger.Info("starting remote write load")
+				progressBy := scrapeDuration / *scrapeSpreadBy
+				writeLoop(hostGen, time.Duration(scrapeDuration),
+					time.Duration(progressBy), *newSeriesPercent,
+					client, *remoteBatchSize, logger)
+			} else {
+				logger.Info("starting scrape server", zap.String("address", *scrapeServer))
+				gatherer := newGatherer(hostGen, time.Duration(scrapeDuration),
+					*newSeriesPercent, logger)
+				handler := promhttp.HandlerFor(gatherer, promhttp.HandlerOpts{
+					ErrorHandling: promhttp.PanicOnError,
+				})
+				err := http.ListenAndServe(*scrapeServer, handler)
+				if err != nil {
+					logger.Fatal("scrape server error", zap.Error(err))
 				}
-				break
 			}
-		}
-
-		if family == nil {
-			log.Fatal("no metric family found for metric")
-		}
-
-		labels := make([]*dto.LabelPair, 0, len(series[i].Labels))
-		for j := range series[i].Labels {
-			label := &dto.LabelPair{
-				Name:  &series[i].Labels[j].Name,
-				Value: &series[i].Labels[j].Value,
-			}
-			labels = append(labels, label)
-		}
-
-		for _, sample := range series[i].Samples {
-			metric := &dto.Metric{
-				Label: labels,
-				Gauge: &dto.Gauge{
-					Value: &sample.Value,
-				},
-			}
-			family.Metric = append(family.Metric, metric)
-		}
+		}()
 	}
 
-	results := make([]*dto.MetricFamily, 0, len(families))
-	for _, family := range families {
-		results = append(results, family)
+	if *query {
+		go func() {
+			logger.Info("starting query load")
+			q := newQueryExecutor(queryExecutorOptions{
+				URL:           *queryTargetURL,
+				Concurrency:   *queryConcurrency,
+				NumWriteHosts: *numHosts,
+				NumSeries:     *queryNumSeries,
+				Step:          *queryStep,
+				Range:         *queryRange,
+				Aggregation:   *queryAggregation,
+				Labels:        parsedQueryLabels,
+				Headers:       parsedQueryHeaders,
+				Sleep:         *querySleep,
+				Debug:         *queryDebug,
+				DebugLength:   *queryDebugLength,
+				Logger:        logger,
+			})
+			q.Run()
+		}()
 	}
-	return results, nil
+
+	xos.WaitForInterrupt(logger, xos.InterruptOptions{})
+}
+
+func parseLabels(
+	labelsJSON string,
+	lablesFromEnvJSON string,
+	logger *zap.Logger,
+) map[string]string {
+	var parsedLabels map[string]string
+	if err := json.Unmarshal([]byte(labelsJSON), &parsedLabels); err != nil {
+		logger.Fatal("could not parse fixed set labels", zap.Error(err))
+	}
+
+	var parsedLabelsFromEnv map[string]string
+	if err := json.Unmarshal([]byte(lablesFromEnvJSON), &parsedLabelsFromEnv); err != nil {
+		logger.Fatal("could not parse fixed env labels", zap.Error(err))
+	}
+	for k, v := range parsedLabelsFromEnv {
+		envValue := os.Getenv(v)
+		if envValue == "" {
+			logger.Fatal("label value for env label not set",
+				zap.String("label", k),
+				zap.String("var", v))
+		}
+		parsedLabels[k] = envValue
+	}
+
+	return parsedLabels
 }
