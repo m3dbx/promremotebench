@@ -27,9 +27,11 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
+	"math"
 	"net/http"
 	"time"
+
+	"promremotebench/pkg/generators"
 
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/snappy"
@@ -37,18 +39,67 @@ import (
 	"github.com/prometheus/common/config"
 	"github.com/prometheus/common/version"
 	"github.com/prometheus/prometheus/prompb"
+	"go.uber.org/zap"
 )
 
-func remoteWrite(series []*prompb.TimeSeries, remotePromClient *Client, remotePromBatchSize int) {
-	i := 0
-	for ; i < len(series)-remotePromBatchSize; i += remotePromBatchSize {
-		remoteWriteBatch(series[i:i+remotePromBatchSize], remotePromClient)
+func writeLoop(
+	generator *generators.HostsSimulator,
+	scrapeDuration time.Duration,
+	progressBy time.Duration,
+	newSeriesPercent float64,
+	remotePromClient *Client,
+	remotePromBatchSize int,
+	logger *zap.Logger,
+) {
+	numWorkers := maxNumScrapesActive *
+		int(math.Ceil(float64(scrapeDuration)/float64(progressBy)))
+	workers := make(chan struct{}, numWorkers)
+	for i := 0; i < numWorkers; i++ {
+		workers <- struct{}{}
 	}
 
-	remoteWriteBatch(series[i:], remotePromClient)
+	ticker := time.NewTicker(progressBy)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		series, err := generator.Generate(progressBy, scrapeDuration,
+			newSeriesPercent)
+		if err != nil {
+			logger.Fatal("error generating load", zap.Error(err))
+		}
+
+		select {
+		case token := <-workers:
+			go func() {
+				remoteWrite(series, remotePromClient,
+					remotePromBatchSize, logger)
+				workers <- token
+			}()
+		default:
+			// Too many active workers
+		}
+	}
 }
 
-func remoteWriteBatch(series []*prompb.TimeSeries, remotePromClient *Client) {
+func remoteWrite(
+	series []*prompb.TimeSeries,
+	remotePromClient *Client,
+	remotePromBatchSize int,
+	logger *zap.Logger,
+) {
+	i := 0
+	for ; i < len(series)-remotePromBatchSize; i += remotePromBatchSize {
+		remoteWriteBatch(series[i:i+remotePromBatchSize], remotePromClient, logger)
+	}
+
+	remoteWriteBatch(series[i:], remotePromClient, logger)
+}
+
+func remoteWriteBatch(
+	series []*prompb.TimeSeries,
+	remotePromClient *Client,
+	logger *zap.Logger,
+) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	req := &prompb.WriteRequest{
@@ -57,14 +108,14 @@ func remoteWriteBatch(series []*prompb.TimeSeries, remotePromClient *Client) {
 
 	data, err := proto.Marshal(req)
 	if err != nil {
-		log.Println("Error marshalling prompb write request:", err)
+		logger.Error("error marshalling prompb write request", zap.Error(err))
 		return
 	}
 
 	encoded := snappy.Encode(nil, data)
 	err = remotePromClient.Store(ctx, encoded)
 	if err != nil {
-		log.Println("Error writing to remote prom store:", err)
+		logger.Error("error writing to remote prom store", zap.Error(err))
 		return
 	}
 }
