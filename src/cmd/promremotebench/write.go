@@ -29,8 +29,9 @@ import (
 	"io/ioutil"
 	"math"
 	"net/http"
-	"promremotebench/pkg/generators"
 	"time"
+
+	"promremotebench/pkg/generators"
 
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/snappy"
