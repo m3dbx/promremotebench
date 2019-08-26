@@ -107,6 +107,8 @@ func main() {
 		err    error
 	)
 
+	checker := newChecker()
+
 	// Parse env var overrides.
 	if v := os.Getenv(envWrite); v != "" {
 		*write, err = strconv.ParseBool(v)
@@ -266,7 +268,7 @@ func main() {
 				progressBy := scrapeDuration / *scrapeSpreadBy
 				writeLoop(hostGen, time.Duration(scrapeDuration),
 					time.Duration(progressBy), *newSeriesPercent,
-					client, *remoteBatchSize, logger)
+					client, *remoteBatchSize, logger, checker)
 			} else {
 				logger.Info("starting scrape server", zap.String("address", *scrapeServer))
 				gatherer := newGatherer(hostGen, time.Duration(scrapeDuration),

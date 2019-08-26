@@ -37,12 +37,14 @@ func newGatherer(
 	scrapeIntervalExpected time.Duration,
 	newSeriesPercent float64,
 	logger *zap.Logger,
+	checker Checker,
 ) prometheus.Gatherer {
 	return &gatherer{
 		generator:              generator,
 		scrapeIntervalExpected: scrapeIntervalExpected,
 		newSeriesPercent:       newSeriesPercent,
 		logger:                 logger,
+		checker:                checker,
 	}
 }
 
@@ -52,6 +54,7 @@ type gatherer struct {
 	scrapeIntervalExpected time.Duration
 	newSeriesPercent       float64
 	logger                 *zap.Logger
+	checker                Checker
 }
 
 func (g *gatherer) Gather() ([]*dto.MetricFamily, error) {
@@ -65,6 +68,8 @@ func (g *gatherer) Gather() ([]*dto.MetricFamily, error) {
 	if err != nil {
 		g.logger.Fatal("error generating load", zap.Error(err))
 	}
+
+	g.checker.Write(series)
 
 	families := make(map[string]*dto.MetricFamily)
 	gauge := dto.MetricType_GAUGE

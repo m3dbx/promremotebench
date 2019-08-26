@@ -50,6 +50,7 @@ func writeLoop(
 	remotePromClient *Client,
 	remotePromBatchSize int,
 	logger *zap.Logger,
+	checker Checker,
 ) {
 	numWorkers := maxNumScrapesActive *
 		int(math.Ceil(float64(scrapeDuration)/float64(progressBy)))
@@ -86,11 +87,14 @@ func remoteWrite(
 	remotePromClient *Client,
 	remotePromBatchSize int,
 	logger *zap.Logger,
+	checker Checker,
 ) {
 	i := 0
 	for ; i < len(series)-remotePromBatchSize; i += remotePromBatchSize {
 		remoteWriteBatch(series[i:i+remotePromBatchSize], remotePromClient, logger)
 	}
+
+	checker.Write(series[i:])
 
 	remoteWriteBatch(series[i:], remotePromClient, logger)
 }
