@@ -50,6 +50,7 @@ func writeLoop(
 	remotePromClient *Client,
 	remotePromBatchSize int,
 	logger *zap.Logger,
+	checker Checker,
 ) {
 	numWorkers := maxNumScrapesActive *
 		int(math.Ceil(float64(scrapeDuration)/float64(progressBy)))
@@ -71,8 +72,12 @@ func writeLoop(
 		select {
 		case token := <-workers:
 			go func() {
-				remoteWrite(series, remotePromClient,
-					remotePromBatchSize, logger)
+				checker.Store(series)
+				// @martinm - better to concatenate the results of series or just loop through the keys?
+				for _, s := range series {
+					remoteWrite(s, remotePromClient,
+						remotePromBatchSize, logger)
+				}
 				workers <- token
 			}()
 		default:
