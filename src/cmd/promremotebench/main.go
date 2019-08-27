@@ -272,7 +272,7 @@ func main() {
 			} else {
 				logger.Info("starting scrape server", zap.String("address", *scrapeServer))
 				gatherer := newGatherer(hostGen, time.Duration(scrapeDuration),
-					*newSeriesPercent, logger)
+					*newSeriesPercent, logger, checker)
 				handler := promhttp.HandlerFor(gatherer, promhttp.HandlerOpts{
 					ErrorHandling: promhttp.PanicOnError,
 				})

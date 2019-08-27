@@ -8,13 +8,14 @@ require (
 	github.com/couchbase/vellum v0.0.0-20190626091642-41f2deade2cf // indirect
 	github.com/edsrzf/mmap-go v1.0.0 // indirect
 	github.com/fortytw2/leaktest v1.3.0 // indirect
+	github.com/golang/mock v1.3.1
 	github.com/golang/protobuf v1.3.1
 	github.com/golang/snappy v0.0.1
 	github.com/google/flatbuffers v1.11.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway v1.9.0 // indirect
 	github.com/influxdata/influxdb-comparisons v0.0.0-20190315104205-27ebcc6f3c08
 	github.com/jhump/protoreflect v1.5.0 // indirect
-	github.com/m3db/m3 v0.11.0
+	github.com/m3db/m3 v0.10.2
 	github.com/m3db/pilosa v0.0.0-20190128031222-ac8920c6e1ab // indirect
 	github.com/m3db/prometheus_client_golang v0.8.1 // indirect
 	github.com/m3db/prometheus_client_model v0.1.0 // indirect

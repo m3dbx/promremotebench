@@ -72,8 +72,9 @@ func writeLoop(
 		select {
 		case token := <-workers:
 			go func() {
+				checker.Store()
 				remoteWrite(series, remotePromClient,
-					remotePromBatchSize, logger)
+					remotePromBatchSize, logger, checker)
 				workers <- token
 			}()
 		default:
@@ -94,7 +95,7 @@ func remoteWrite(
 		remoteWriteBatch(series[i:i+remotePromBatchSize], remotePromClient, logger)
 	}
 
-	checker.Write(series[i:])
+	checker.Store(series[i:])
 
 	remoteWriteBatch(series[i:], remotePromClient, logger)
 }

@@ -69,7 +69,7 @@ func (g *gatherer) Gather() ([]*dto.MetricFamily, error) {
 		g.logger.Fatal("error generating load", zap.Error(err))
 	}
 
-	g.checker.Write(series)
+	g.checker.Store(series)
 
 	families := make(map[string]*dto.MetricFamily)
 	gauge := dto.MetricType_GAUGE

@@ -90,7 +90,7 @@ func (h *HostsSimulator) Hosts() []devops.Host {
 func (h *HostsSimulator) Generate(
 	progressBy, scrapeDuration time.Duration,
 	newSeriesPercent float64,
-) ([]*prompb.TimeSeries, error) {
+) (map[string][]*prompb.TimeSeries, error) {
 	h.Lock()
 	defer h.Unlock()
 
@@ -135,8 +135,10 @@ func (h *HostsSimulator) Generate(
 	h.hosts = h.hosts[numHosts:]
 
 	nowUnixMilliseconds := now.UnixNano() / int64(time.Millisecond)
-	allSeries := make([]*prompb.TimeSeries, 0, len(sendFromHosts)*len(sendFromHosts[0].SimulatedMeasurements))
+
+	hostValues := make(map[string][]*prompb.TimeSeries)
 	for _, host := range sendFromHosts {
+		allSeries := make([]*prompb.TimeSeries, 0, len(host.SimulatedMeasurements))
 		for _, measurement := range host.SimulatedMeasurements {
 			p := common.MakeUsablePoint()
 			measurement.ToPoint(p)
@@ -182,9 +184,11 @@ func (h *HostsSimulator) Generate(
 					Labels:  labels,
 					Samples: []prompb.Sample{sample},
 				})
+
 			}
 		}
+		hostValues[string(host.Name)] = allSeries
 	}
 
-	return allSeries, nil
+	return hostValues, nil
 }
