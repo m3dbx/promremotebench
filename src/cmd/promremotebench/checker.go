@@ -27,10 +27,6 @@ import (
 	"github.com/prometheus/prometheus/prompb"
 )
 
-const (
-	separator = "_"
-)
-
 var (
 	sumFunc = func(a, b float64) float64 {
 		a += b
