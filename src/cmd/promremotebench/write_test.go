@@ -111,16 +111,21 @@ func TestRemoteWrite(t *testing.T) {
 			series, err := hostGen.Generate(time.Second, time.Second, 0)
 			require.NoError(t, err)
 
+			vals := []*prompb.TimeSeries{}
+			for _, s := range series {
+				vals = append(vals, s...)
+			}
+
 			batchSize := 10
-			expectedBatches := int(math.Ceil(float64(len(series)) / float64(batchSize)))
+			expectedBatches := int(math.Ceil(float64(len(vals)) / float64(batchSize)))
 
 			wg.Add(expectedBatches)
-			remoteWrite(series, remotePromClient, batchSize, logger)
+			remoteWrite(vals, remotePromClient, batchSize, logger)
 			wg.Wait()
 			assert.Equal(t, expectedBatches, numBatchesRecieved)
-			assert.Equal(t, len(series), numTSRecieved)
+			assert.Equal(t, len(vals), numTSRecieved)
 
-			fmt.Println("wrote series:", len(series))
+			fmt.Println("wrote series:", len(vals))
 		})
 	}
 }
