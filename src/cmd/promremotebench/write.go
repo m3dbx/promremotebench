@@ -77,8 +77,8 @@ func writeLoop(
 				for _, s := range series {
 					remoteWrite(s, remotePromClient,
 						remotePromBatchSize, logger)
-					workers <- token
 				}
+				workers <- token
 			}()
 		default:
 			// Too many active workers
