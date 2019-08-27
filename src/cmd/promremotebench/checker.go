@@ -93,8 +93,8 @@ func promSamplesToM3Datapoints(samples []prompb.Sample, aggFunc aggFunc) Datapoi
 		timestamp := promTimestampToTime(samples[0].Timestamp)
 		for _, sample := range samples {
 			aggValue = aggFunc(aggValue, sample.Value)
-
 		}
+
 		datapoints = append(datapoints, Datapoint{Timestamp: timestamp, Value: aggValue})
 	}
 
