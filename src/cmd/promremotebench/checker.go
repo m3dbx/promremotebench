@@ -31,6 +31,13 @@ const (
 	separator = "_"
 )
 
+var (
+	sumFunc = func(a, b float64) float64 {
+		a += b
+		return a
+	}
+)
+
 // A Datapoint is a single data value reported at a given time
 type Datapoint struct {
 	Timestamp time.Time
@@ -63,11 +70,7 @@ func newChecker() Checker {
 func (c *checker) Store(hostSeries map[string][]*prompb.TimeSeries) {
 	for host, series := range hostSeries {
 		for _, s := range series {
-			aggFunc := func(a, b float64) float64 {
-				a += b
-				return a
-			}
-			dps := PromSamplesToM3Datapoints(s.Samples, aggFunc)
+			dps := PromSamplesToM3Datapoints(s.Samples, sumFunc)
 			c.Lock()
 			c.values[host] = append(c.values[host], dps...)
 			c.Unlock()
