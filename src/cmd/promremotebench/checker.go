@@ -38,6 +38,8 @@ var (
 	}
 )
 
+type aggFunc func(float64, float64) float64
+
 // A Datapoint is a single data value reported at a given time
 type Datapoint struct {
 	Timestamp time.Time
@@ -70,7 +72,7 @@ func newChecker() Checker {
 func (c *checker) Store(hostSeries map[string][]*prompb.TimeSeries) {
 	for host, series := range hostSeries {
 		for _, s := range series {
-			dps := PromSamplesToM3Datapoints(s.Samples, sumFunc)
+			dps := promSamplesToM3Datapoints(s.Samples, sumFunc)
 			c.Lock()
 			c.values[host] = append(c.values[host], dps...)
 			c.Unlock()
@@ -82,15 +84,13 @@ func (c *checker) Read() map[string]Datapoints {
 	return c.values
 }
 
-type aggFunc func(float64, float64) float64
-
-// PromSamplesToM3Datapoints converts Prometheus samples to M3 datapoints and aggregates
+// promSamplesToM3Datapoints converts Prometheus samples to M3 datapoints and aggregates
 // them based on a given aggregation function.
-func PromSamplesToM3Datapoints(samples []prompb.Sample, aggFunc aggFunc) Datapoints {
+func promSamplesToM3Datapoints(samples []prompb.Sample, aggFunc aggFunc) Datapoints {
 	datapoints := make(Datapoints, 0, len(samples))
 	aggValue := 0.0
 	if len(samples) > 0 {
-		timestamp := PromTimestampToTime(samples[0].Timestamp)
+		timestamp := promTimestampToTime(samples[0].Timestamp)
 		for _, sample := range samples {
 			aggValue = aggFunc(aggValue, sample.Value)
 
@@ -101,7 +101,7 @@ func PromSamplesToM3Datapoints(samples []prompb.Sample, aggFunc aggFunc) Datapoi
 	return datapoints
 }
 
-// PromTimestampToTime converts a prometheus timestamp to time.Time.
-func PromTimestampToTime(timestampMS int64) time.Time {
+// promTimestampToTime converts a prometheus timestamp to time.Time.
+func promTimestampToTime(timestampMS int64) time.Time {
 	return time.Unix(0, timestampMS*int64(time.Millisecond))
 }
