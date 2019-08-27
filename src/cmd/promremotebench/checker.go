@@ -21,8 +21,6 @@
 package main
 
 import (
-	"fmt"
-	"math/rand"
 	"sync"
 	"time"
 
@@ -65,18 +63,15 @@ func newChecker() Checker {
 func (c *checker) Store(hostSeries map[string][]*prompb.TimeSeries) {
 	for host, series := range hostSeries {
 		for _, s := range series {
-			dps := PromSamplesToM3Datapoints(s.Samples)
+			aggFunc := func(a, b float64) float64 {
+				a += b
+				return a
+			}
+			dps := PromSamplesToM3Datapoints(s.Samples, aggFunc)
 			c.Lock()
-			c.values[host] = dps
+			c.values[host] = append(c.values[host], dps...)
 			c.Unlock()
 		}
-	}
-
-	if rand.Float64() < 0.5 {
-		for name, val := range c.values {
-			fmt.Println(name, ":", val)
-		}
-		fmt.Println("***********************")
 	}
 }
 
@@ -84,21 +79,20 @@ func (c *checker) Read() map[string]Datapoints {
 	return c.values
 }
 
-// PromSamplesToM3Datapoints converts Prometheus samples to M3 datapoints
-func PromSamplesToM3Datapoints(samples []prompb.Sample) Datapoints {
-	datapoints := make(Datapoints, 0, len(samples))
-	tsMap := make(map[int64]float64)
-	for _, sample := range samples {
-		if _, ok := tsMap[sample.Timestamp]; ok {
-			tsMap[sample.Timestamp] += sample.Value
-		} else {
-			tsMap[sample.Timestamp] = sample.Value
-		}
-	}
+type aggFunc func(float64, float64) float64
 
-	for promTS, promVal := range tsMap {
-		timestamp := PromTimestampToTime(promTS)
-		datapoints = append(datapoints, Datapoint{Timestamp: timestamp, Value: promVal})
+// PromSamplesToM3Datapoints converts Prometheus samples to M3 datapoints and aggregates
+// them based on a given aggregation function.
+func PromSamplesToM3Datapoints(samples []prompb.Sample, aggFunc aggFunc) Datapoints {
+	datapoints := make(Datapoints, 0, len(samples))
+	aggValue := 0.0
+	if len(samples) > 0 {
+		timestamp := PromTimestampToTime(samples[0].Timestamp)
+		for _, sample := range samples {
+			aggValue = aggFunc(aggValue, sample.Value)
+
+		}
+		datapoints = append(datapoints, Datapoint{Timestamp: timestamp, Value: aggValue})
 	}
 
 	return datapoints
