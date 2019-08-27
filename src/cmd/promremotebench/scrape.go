@@ -63,56 +63,59 @@ func (g *gatherer) Gather() ([]*dto.MetricFamily, error) {
 
 	interval := g.scrapeIntervalExpected
 
-	series, err := g.generator.Generate(interval, interval,
+	hostSeries, err := g.generator.Generate(interval, interval,
 		g.newSeriesPercent)
 	if err != nil {
 		g.logger.Fatal("error generating load", zap.Error(err))
 	}
 
-	g.checker.Store(series)
+	g.checker.Store(hostSeries)
 
 	families := make(map[string]*dto.MetricFamily)
 	gauge := dto.MetricType_GAUGE
-	for i := range series {
-		var family *dto.MetricFamily
+	// @martinm - better to concatenate the results of series or just loop through the keys?
+	for _, series := range hostSeries {
+		for i := range series {
+			var family *dto.MetricFamily
 
-		for j := range series[i].Labels {
-			name := series[i].Labels[j].Name
-			if name == labels.MetricName {
-				var ok bool
-				family, ok = families[name]
-				if !ok {
-					family = &dto.MetricFamily{
-						Name: &name,
-						Type: &gauge,
+			for j := range series[i].Labels {
+				name := series[i].Labels[j].Name
+				if name == labels.MetricName {
+					var ok bool
+					family, ok = families[name]
+					if !ok {
+						family = &dto.MetricFamily{
+							Name: &name,
+							Type: &gauge,
+						}
+						families[name] = family
 					}
-					families[name] = family
+					break
 				}
-				break
 			}
-		}
 
-		if family == nil {
-			g.logger.Fatal("no metric family found for metric")
-		}
-
-		labels := make([]*dto.LabelPair, 0, len(series[i].Labels))
-		for j := range series[i].Labels {
-			label := &dto.LabelPair{
-				Name:  &series[i].Labels[j].Name,
-				Value: &series[i].Labels[j].Value,
+			if family == nil {
+				g.logger.Fatal("no metric family found for metric")
 			}
-			labels = append(labels, label)
-		}
 
-		for _, sample := range series[i].Samples {
-			metric := &dto.Metric{
-				Label: labels,
-				Gauge: &dto.Gauge{
-					Value: &sample.Value,
-				},
+			labels := make([]*dto.LabelPair, 0, len(series[i].Labels))
+			for j := range series[i].Labels {
+				label := &dto.LabelPair{
+					Name:  &series[i].Labels[j].Name,
+					Value: &series[i].Labels[j].Value,
+				}
+				labels = append(labels, label)
 			}
-			family.Metric = append(family.Metric, metric)
+
+			for _, sample := range series[i].Samples {
+				metric := &dto.Metric{
+					Label: labels,
+					Gauge: &dto.Gauge{
+						Value: &sample.Value,
+					},
+				}
+				family.Metric = append(family.Metric, metric)
+			}
 		}
 	}
 

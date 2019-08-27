@@ -21,14 +21,11 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
 	"math/rand"
 	"sync"
+	"time"
 
-	"github.com/m3db/m3/src/query/models"
-	"github.com/m3db/m3/src/query/storage"
-	"github.com/m3db/m3/src/query/ts"
 	"github.com/prometheus/prometheus/prompb"
 )
 
@@ -36,23 +33,32 @@ const (
 	separator = "_"
 )
 
+// A Datapoint is a single data value reported at a given time
+type Datapoint struct {
+	Timestamp time.Time
+	Value     float64
+}
+
+// Datapoints is a list of datapoints.
+type Datapoints []Datapoint
+
 // Checker is used to read and write metrics to ensure accuracy.
 type Checker interface {
 	// Store stores values given a list of Prometheus timeseries.
 	Store(map[string][]*prompb.TimeSeries)
 	// Read returns the values stored.
-	Read() map[string]ts.Datapoints
+	Read() map[string]Datapoints
 }
 
 type checker struct {
 	sync.RWMutex
 
-	values map[string]ts.Datapoints
+	values map[string]Datapoints
 }
 
 func newChecker() Checker {
 	return &checker{
-		values: make(map[string]ts.Datapoints),
+		values: make(map[string]Datapoints),
 	}
 }
 
@@ -60,17 +66,8 @@ func (c *checker) Store(hostSeries map[string][]*prompb.TimeSeries) {
 	for host, series := range hostSeries {
 		for _, s := range series {
 			dps := PromSamplesToM3Datapoints(s.Samples)
-			// ts := []byte(strconv.FormatInt(sample.Timestamp, 10))
-			// id = append(id, []byte(separator)...)
-			// id = append(id, ts...)
-			// idString := string(id)
 			c.Lock()
 			c.values[host] = dps
-			// if _, ok := c.values[host]; ok {
-			// 	c.values[host] += sample.Value
-			// } else {
-			// 	c.values[host] = sample.Value
-			// }
 			c.Unlock()
 		}
 	}
@@ -83,9 +80,13 @@ func (c *checker) Store(hostSeries map[string][]*prompb.TimeSeries) {
 	}
 }
 
+func (c *checker) Read() map[string]Datapoints {
+	return c.values
+}
+
 // PromSamplesToM3Datapoints converts Prometheus samples to M3 datapoints
-func PromSamplesToM3Datapoints(samples []prompb.Sample) ts.Datapoints {
-	datapoints := make(ts.Datapoints, 0, len(samples))
+func PromSamplesToM3Datapoints(samples []prompb.Sample) Datapoints {
+	datapoints := make(Datapoints, 0, len(samples))
 	tsMap := make(map[int64]float64)
 	for _, sample := range samples {
 		if _, ok := tsMap[sample.Timestamp]; ok {
@@ -95,47 +96,15 @@ func PromSamplesToM3Datapoints(samples []prompb.Sample) ts.Datapoints {
 		}
 	}
 
-	for ts, val := range tsMap {
-		timestamp := storage.PromTimestampToTime(ts)
-		datapoints = append(datapoints, ts.Datapoint{Timestamp: timestamp, Value: val})
+	for promTS, promVal := range tsMap {
+		timestamp := PromTimestampToTime(promTS)
+		datapoints = append(datapoints, Datapoint{Timestamp: timestamp, Value: promVal})
 	}
 
 	return datapoints
 }
 
-func (c *checker) Read() map[string]ts.Datapoints {
-	return c.values
-}
-
-// The default name for the name and bucket tags in Prometheus metrics.
-// This can be overwritten by setting tagOptions in the config.
-var (
-	promDefaultName       = []byte("__name__")
-	promDefaultBucketName = []byte("le")
-)
-
-// PromLabelsToM3Tags converts Prometheus labels to M3 tags
-func PromLabelsToM3Tags(
-	labels []*prompb.Label,
-	tagOptions models.TagOptions,
-) models.Tags {
-	tags := models.NewTags(len(labels), tagOptions)
-	tagList := make([]models.Tag, 0, len(labels))
-	for _, label := range labels {
-		name := label.Name
-		// If this label corresponds to the Prometheus name or bucket name,
-		// instead set it as the given name tag from the config file.
-		if bytes.Equal(promDefaultName, []byte(name)) {
-			tags = tags.SetName([]byte(label.Value))
-		} else if bytes.Equal(promDefaultBucketName, []byte(name)) {
-			tags = tags.SetBucket([]byte(label.Value))
-		} else {
-			tagList = append(tagList, models.Tag{
-				Name:  []byte(name),
-				Value: []byte(label.Value),
-			})
-		}
-	}
-
-	return tags.AddTags(tagList)
+// PromTimestampToTime converts a prometheus timestamp to time.Time.
+func PromTimestampToTime(timestampMS int64) time.Time {
+	return time.Unix(0, timestampMS*int64(time.Millisecond))
 }

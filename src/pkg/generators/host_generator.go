@@ -28,7 +28,6 @@ import (
 
 	"github.com/influxdata/influxdb-comparisons/bulk_data_gen/common"
 	"github.com/influxdata/influxdb-comparisons/bulk_data_gen/devops"
-
 	"github.com/prometheus/prometheus/pkg/labels"
 	"github.com/prometheus/prometheus/prompb"
 )

@@ -72,10 +72,13 @@ func writeLoop(
 		select {
 		case token := <-workers:
 			go func() {
-				checker.Store()
-				remoteWrite(series, remotePromClient,
-					remotePromBatchSize, logger, checker)
-				workers <- token
+				checker.Store(series)
+				// @martinm - better to concatenate the results of series or just loop through the keys?
+				for _, s := range series {
+					remoteWrite(s, remotePromClient,
+						remotePromBatchSize, logger)
+					workers <- token
+				}
 			}()
 		default:
 			// Too many active workers
@@ -88,14 +91,11 @@ func remoteWrite(
 	remotePromClient *Client,
 	remotePromBatchSize int,
 	logger *zap.Logger,
-	checker Checker,
 ) {
 	i := 0
 	for ; i < len(series)-remotePromBatchSize; i += remotePromBatchSize {
 		remoteWriteBatch(series[i:i+remotePromBatchSize], remotePromClient, logger)
 	}
-
-	checker.Store(series[i:])
 
 	remoteWriteBatch(series[i:], remotePromClient, logger)
 }
