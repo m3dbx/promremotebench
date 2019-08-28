@@ -33,6 +33,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/promql"
 	"github.com/prometheus/prometheus/util/stats"
 
@@ -297,51 +298,46 @@ type PromQueryResult struct {
 
 type PromQueryData struct {
 	ResultType promql.ValueType  `json:"resultType"`
-	Result     promql.Value      `json:"result"`
+	Result     []PromQueryMatrix `json:"result"`
 	Stats      *stats.QueryStats `json:"stats,omitempty"`
 }
 
-func (q *queryExecutor) validateQuery(dps Datapoints, data []byte) {
-	var res PromQueryResult
+type PromQueryMatrix struct {
+	Values []model.SamplePair `json:"values"`
+}
+
+func (q *queryExecutor) validateQuery(dps Datapoints, data []byte) bool {
+	res := PromQueryResult{}
 	err := json.Unmarshal(data, &res)
 	if err != nil {
 		q.Logger.Error("unable to unmarshal PromQL query result",
 			zap.Error(err))
-		return
+		return false
 	}
 
-	var (
-		matrix promql.Matrix
-		ok     bool
-	)
-
-	if matrix, ok = res.Data.Result.(promql.Matrix); !ok {
-		q.Logger.Error("invalid result type. Expecting matrix, but got" +
-			string(res.Data.Result.Type()))
-		return
-	}
-
+	matrix := res.Data.Result
 	if len(matrix) != 1 {
 		q.Logger.Error("expecting one result series, but got "+strconv.Itoa(len(matrix)),
 			zap.Any("results", matrix))
-		return
+		return false
 	}
 
 	i, matches := 0, 0
 
-	for _, point := range matrix[0].Points {
+	for _, value := range matrix[0].Values {
 		for i < len(dps) {
-			if promTimestampToTime(point.T) == dps[i].Timestamp {
-				if point.V != dps[i].Value {
+			if value.Timestamp.UnixNano() == dps[i].Timestamp.UnixNano() {
+				if float64(value.Value) != dps[i].Value {
 					q.Logger.Error("values did not match for matching timestamps",
 						zap.Int64("common timestamp", dps[i].Timestamp.UnixNano()),
-						zap.Float64("in memory value", point.V),
+						zap.Float64("in memory value", float64(value.Value)),
 						zap.Float64("queried value", dps[i].Value))
 					continue
 				}
 
 				matches++
-				continue
+				i++
+				break
 			}
 
 			i++
@@ -354,8 +350,10 @@ func (q *queryExecutor) validateQuery(dps Datapoints, data []byte) {
 
 	if matches == 0 {
 		q.Logger.Error("no timestamps matched at all")
-		return
+		return false
 	}
+
+	return true
 }
 
 func mustWriteString(w *strings.Builder, v string) {
