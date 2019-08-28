@@ -84,7 +84,7 @@ func main() {
 		// query options
 		queryTargetURL     = flag.String("query-target", "http://localhost:7201/query_range", "Target query endpoint (for exercising by proxy remote read)")
 		queryConcurrency   = flag.Int("query-concurrency", 10, "Query concurrency value")
-		queryNumSeries     = flag.Int("query-num-series", 500, "Query number of series (will round up to nearest 100), cannot exceed the number of 100*write_num_hosts (since each host sends 100 or so metrics)")
+		queryNumSeries     = flag.Int("query-num-series", 500, "Query number of series (will round up to nearest 100), cannot exceed the number of 101*write_num_hosts (since each host sends 101 metrics)")
 		queryStep          = flag.Duration("query-step", time.Minute, "Query step size")
 		queryRange         = flag.Duration("query-range", 12*time.Hour, "Query time range size (from now backwards)")
 		queryAggregation   = flag.String("query-aggregation", "sum", "Query aggregation")
@@ -236,6 +236,12 @@ func main() {
 	// Parse opts further.
 	parsedLabels := parseLabels(*labels, *labelsFromEnv, logger)
 	parsedQueryLabels := parseLabels(*queryLabels, *queryLabelsFromEnv, logger)
+
+	if *query && len(parsedQueryLanbels) == 0 {
+		logger.Warn("No query labels provided. This will result in more metrics returned than expected
+		if there is more than one instance of promremotebench executing queries due to metric name
+		duplication across promremotebench instances.")
+	}
 
 	var parsedQueryHeaders map[string]string
 	if err := json.Unmarshal([]byte(*queryHeaders), &parsedQueryHeaders); err != nil {

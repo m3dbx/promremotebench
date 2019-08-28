@@ -73,7 +73,7 @@ func (q *queryExecutor) Run() {
 
 func (q *queryExecutor) workerLoop() {
 	// Select number of write hosts to select metrics from.
-	numHosts := int(math.Ceil(float64(q.NumSeries) / 100.0))
+	numHosts := int(math.Ceil(float64(q.NumSeries) / 101.0))
 	if numHosts < 1 {
 		numHosts = 1
 	}
@@ -81,7 +81,7 @@ func (q *queryExecutor) workerLoop() {
 	if numHosts > q.NumWriteHosts {
 		q.Logger.Fatal("num series exceeds metrics emitted by write load num hosts",
 			zap.Int("query-num-series", q.NumSeries),
-			zap.Int("max-valid-query-num-series", q.NumWriteHosts*100),
+			zap.Int("max-valid-query-num-series", q.NumWriteHosts*101),
 			zap.Int("num-write-hosts", q.NumWriteHosts))
 	}
 
@@ -110,7 +110,7 @@ func (q *queryExecutor) workerLoop() {
 				mustWriteString(query, "({")
 			}
 
-			// Now we pick a few hosts to select metrics from, each should return 100 metrics.
+			// Now we pick a few hosts to select metrics from, each should return 101 metrics.
 			for k := range pickedHosts {
 				delete(pickedHosts, k) // Reuse pickedHosts
 			}
