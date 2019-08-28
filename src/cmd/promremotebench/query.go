@@ -78,7 +78,7 @@ func (q *queryExecutor) Run(checker Checker) {
 }
 
 // accuracyCheck checks the accuracy of data for one
-// host at a time
+// host at a time.
 func (q *queryExecutor) accuracyCheck(checker Checker) {
 	type label struct {
 		name  string
@@ -104,10 +104,15 @@ func (q *queryExecutor) accuracyCheck(checker Checker) {
 			}
 
 			curHostnames := checker.GetHostNames()
+			if len(curHostnames) == 0 {
+				q.Logger.Error("no hosts returned in the checker, skipping accuracy check")
+				return
+			}
+
 			selectedHost := curHostnames[rand.Intn(len(curHostnames))]
 			mustWriteString(query, "hostname=\""+selectedHost+"\"")
 
-			// Write the common labels
+			// Write the common labels.
 			for j := 0; j < len(labels); j++ {
 				mustWriteString(query, ",")
 
@@ -124,7 +129,7 @@ func (q *queryExecutor) accuracyCheck(checker Checker) {
 
 			res := q.executeQuery(query, true)
 			if len(res) == 0 {
-				q.Logger.Error("Invalid response for accuracy query")
+				q.Logger.Error("invalid response for accuracy query")
 			}
 
 			q.validateQuery(checker.GetDatapoints(selectedHost), res)
@@ -172,6 +177,11 @@ func (q *queryExecutor) alertLoad(checker Checker) {
 			}
 
 			curHostnames := checker.GetHostNames()
+			if len(curHostnames) == 0 {
+				q.Logger.Error("no hosts returned in the checker, skipping load test round")
+				return
+			}
+
 			// Now we pick a few hosts to select metrics from, each should return 101 metrics.
 			for k := range pickedHosts {
 				delete(pickedHosts, k) // Reuse pickedHosts
@@ -180,7 +190,7 @@ func (q *queryExecutor) alertLoad(checker Checker) {
 			for j := 0; j < numHosts; j++ {
 				hostIndex := rand.Intn(len(curHostnames))
 				if _, ok := pickedHosts[curHostnames[hostIndex]]; ok {
-					j-- // Try again
+					j-- // Try again.
 					continue
 				}
 				pickedHosts[curHostnames[hostIndex]] = struct{}{}
@@ -191,7 +201,7 @@ func (q *queryExecutor) alertLoad(checker Checker) {
 			}
 			mustWriteString(query, ")\"")
 
-			// Write the common labels
+			// Write the common labels.
 			for j := 0; j < len(labels); j++ {
 				mustWriteString(query, ",")
 
@@ -258,7 +268,7 @@ func (q *queryExecutor) executeQuery(query *strings.Builder, retResult bool) []b
 
 	if q.Debug || retResult {
 		reader := io.Reader(resp.Body)
-		if q.DebugLength > 0 {
+		if q.Debug && q.DebugLength > 0 {
 			reader = io.LimitReader(resp.Body, int64(q.DebugLength))
 		}
 
@@ -268,13 +278,13 @@ func (q *queryExecutor) executeQuery(query *strings.Builder, retResult bool) []b
 				zap.Error(err))
 		}
 
-		q.Logger.Info("response body",
-			zap.Int("limit", q.DebugLength),
-			zap.ByteString("body", data))
-
 		if retResult {
 			return data
 		}
+
+		q.Logger.Info("response body",
+			zap.Int("limit", q.DebugLength),
+			zap.ByteString("body", data))
 	}
 
 	return nil
@@ -295,7 +305,7 @@ func (q *queryExecutor) validateQuery(dps Datapoints, data []byte) {
 	var res PromQueryResult
 	err := json.Unmarshal(data, &res)
 	if err != nil {
-		q.Logger.Error("Unable to unmarshal PromQL query result",
+		q.Logger.Error("unable to unmarshal PromQL query result",
 			zap.Error(err))
 		return
 	}
@@ -306,13 +316,13 @@ func (q *queryExecutor) validateQuery(dps Datapoints, data []byte) {
 	)
 
 	if matrix, ok = res.Data.Result.(promql.Matrix); !ok {
-		q.Logger.Error("Invalid result type. Expecting matrix, but got" +
+		q.Logger.Error("invalid result type. Expecting matrix, but got" +
 			string(res.Data.Result.Type()))
 		return
 	}
 
 	if len(matrix) != 1 {
-		q.Logger.Error("Expecting one result series, but got "+strconv.Itoa(len(matrix)),
+		q.Logger.Error("expecting one result series, but got "+strconv.Itoa(len(matrix)),
 			zap.Any("results", matrix))
 		return
 	}
@@ -323,8 +333,11 @@ func (q *queryExecutor) validateQuery(dps Datapoints, data []byte) {
 		for i < len(dps) {
 			if promTimestampToTime(point.T) == dps[i].Timestamp {
 				if point.V != dps[i].Value {
-					q.Logger.Error("Values did not match for matching timestamps")
-					return
+					q.Logger.Error("values did not match for matching timestamps",
+						zap.Int64("common timestamp", dps[i].Timestamp.UnixNano()),
+						zap.Float64("in memory value", point.V),
+						zap.Float64("queried value", dps[i].Value))
+					continue
 				}
 
 				matches++
@@ -340,7 +353,7 @@ func (q *queryExecutor) validateQuery(dps Datapoints, data []byte) {
 	}
 
 	if matches == 0 {
-		q.Logger.Error("No timestamps matched at all")
+		q.Logger.Error("no timestamps matched at all")
 		return
 	}
 }

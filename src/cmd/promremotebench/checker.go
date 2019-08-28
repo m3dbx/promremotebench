@@ -36,7 +36,7 @@ var (
 
 type aggFunc func(float64, float64) float64
 
-// A Datapoint is a single data value reported at a given time
+// A Datapoint is a single data value reported at a given time.
 type Datapoint struct {
 	Timestamp time.Time
 	Value     float64
@@ -105,7 +105,7 @@ func (c *checker) GetHostNames() []string {
 }
 
 // promSeriesToM3Datapoint collapses Prometheus TimeSeries values to a single M3 datapoint
-// with the aggregation function specified
+// with the aggregation function specified.
 func promSeriesToM3Datapoint(series []prompb.TimeSeries, aggFunc aggFunc) Datapoint {
 	aggValue := 0.0
 	var timestamp time.Time
