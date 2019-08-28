@@ -82,7 +82,7 @@ func main() {
 		scrapeSpreadBy        = flag.Float64("spread", 10.0, "The number of times to spread the scrape interval by when emitting samples (for remote write)")
 
 		// query options
-		queryTargetURL     = flag.String("query-target", "http://localhost:7201/query_range", "Target query endpoint (for exercising by proxy remote read)")
+		queryTargetURL     = flag.String("query-target", "http://localhost:7201/api/v1/query_range", "Target query endpoint (for exercising by proxy remote read)")
 		queryConcurrency   = flag.Int("query-concurrency", 10, "Query concurrency value")
 		queryNumSeries     = flag.Int("query-num-series", 500, "Query number of series (will round up to nearest 100), cannot exceed the number of 101*write_num_hosts (since each host sends 101 metrics)")
 		queryStep          = flag.Duration("query-step", time.Minute, "Query step size")
