@@ -308,7 +308,7 @@ func main() {
 				DebugLength:   *queryDebugLength,
 				Logger:        logger,
 			})
-			q.Run()
+			q.Run(checker)
 		}()
 	}
 

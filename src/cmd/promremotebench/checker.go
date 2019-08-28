@@ -48,9 +48,12 @@ type Datapoints []Datapoint
 // Checker is used to read and write metrics to ensure accuracy.
 type Checker interface {
 	// Store stores values given a list of Prometheus timeseries.
-	Store(map[string][]*prompb.TimeSeries)
-	// Read returns the values stored.
-	Read() map[string]Datapoints
+	Store(map[string][]prompb.TimeSeries)
+	// GetDatapoints returns the values datapoints.
+	GetDatapoints(hostname string) Datapoints
+	// GetHostNames returns the active host names data is being
+	// generated for.
+	GetHostNames() []string
 }
 
 type checker struct {
@@ -67,7 +70,7 @@ func newChecker(aggFunc aggFunc) Checker {
 	}
 }
 
-func (c *checker) Store(hostSeries map[string][]*prompb.TimeSeries) {
+func (c *checker) Store(hostSeries map[string][]prompb.TimeSeries) {
 	for host, series := range hostSeries {
 		if len(series) > 0 {
 			dp := promSeriesToM3Datapoint(series, c.aggFunc)
@@ -79,11 +82,22 @@ func (c *checker) Store(hostSeries map[string][]*prompb.TimeSeries) {
 	}
 }
 
-func (c *checker) Read() map[string]Datapoints {
+func (c *checker) GetDatapoints(hostname string) Datapoints {
+	var dps Datapoints
 	c.RLock()
-	results := make(map[string]Datapoints, len(c.values))
-	for host, dps := range c.values {
-		results[host] = dps
+	dps = c.values[hostname]
+	c.RUnlock()
+
+	return dps
+}
+
+func (c *checker) GetHostNames() []string {
+	c.RLock()
+	results := make([]string, len(c.values))
+	i := 0
+	for host, _ := range c.values {
+		results[i] = host
+		i++
 	}
 	c.RUnlock()
 
@@ -92,11 +106,9 @@ func (c *checker) Read() map[string]Datapoints {
 
 // promSeriesToM3Datapoint collapses Prometheus TimeSeries values to a single M3 datapoint
 // with the aggregation function specified
-func promSeriesToM3Datapoint(series []*prompb.TimeSeries, aggFunc aggFunc) Datapoint {
-	var (
-		aggValue  float64
-		timestamp time.Time
-	)
+func promSeriesToM3Datapoint(series []prompb.TimeSeries, aggFunc aggFunc) Datapoint {
+	aggValue := 0.0
+	var timestamp time.Time
 
 	if len(series) > 0 && len(series[0].Samples) > 0 {
 		timestamp = promTimestampToTime(series[0].Samples[0].Timestamp)

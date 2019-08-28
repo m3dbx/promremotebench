@@ -111,7 +111,7 @@ func TestRemoteWrite(t *testing.T) {
 			series, err := hostGen.Generate(time.Second, time.Second, 0)
 			require.NoError(t, err)
 
-			vals := []*prompb.TimeSeries{}
+			vals := []prompb.TimeSeries{}
 			for _, s := range series {
 				vals = append(vals, s...)
 			}

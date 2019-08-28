@@ -3,44 +3,46 @@ module promremotebench
 go 1.12
 
 require (
-	github.com/MichaelTJones/pcg v0.0.0-20180122055547-df440c6ed7ed // indirect
-	github.com/cespare/xxhash v1.1.0 // indirect
-	github.com/couchbase/vellum v0.0.0-20190626091642-41f2deade2cf // indirect
-	github.com/edsrzf/mmap-go v1.0.0 // indirect
+	cloud.google.com/go v0.44.3 // indirect
 	github.com/fortytw2/leaktest v1.3.0 // indirect
-	github.com/golang/mock v1.3.1
-	github.com/golang/protobuf v1.3.1
+	github.com/golang/protobuf v1.3.2
 	github.com/golang/snappy v0.0.1
 	github.com/google/flatbuffers v1.11.0 // indirect
-	github.com/grpc-ecosystem/grpc-gateway v1.9.0 // indirect
-	github.com/influxdata/influxdb-comparisons v0.0.0-20190315104205-27ebcc6f3c08
-	github.com/jhump/protoreflect v1.5.0 // indirect
-	github.com/m3db/m3 v0.10.2
-	github.com/m3db/pilosa v0.0.0-20190128031222-ac8920c6e1ab // indirect
+	github.com/grpc-ecosystem/grpc-gateway v1.9.6 // indirect
+	github.com/influxdata/influxdb-comparisons v0.0.0-20190823094654-be58a32f1c25
+	github.com/konsorten/go-windows-terminal-sequences v1.0.2 // indirect
+	github.com/kr/pty v1.1.8 // indirect
+	github.com/m3db/m3 v0.11.0
 	github.com/m3db/prometheus_client_golang v0.8.1 // indirect
 	github.com/m3db/prometheus_client_model v0.1.0 // indirect
 	github.com/m3db/prometheus_common v0.1.0 // indirect
 	github.com/m3db/prometheus_procfs v0.8.1 // indirect
-	github.com/m3db/stackadler32 v0.0.0-20180104200216-bfebcd73ef6f // indirect
-	github.com/m3db/vellum v0.0.0-20190111185746-e766292d14de // indirect
-	github.com/opentracing/opentracing-go v1.1.0 // indirect
-	github.com/pborman/uuid v1.2.0 // indirect
+	github.com/pelletier/go-toml v1.4.0 // indirect
 	github.com/pkg/errors v0.8.1
-	github.com/prometheus/client_golang v0.9.1
-	github.com/prometheus/client_model v0.0.0-20180712105110-5c3871d89910
-	github.com/prometheus/common v0.4.0
-	github.com/prometheus/prometheus v2.5.0+incompatible
-	github.com/satori/go.uuid v1.2.0 // indirect
-	github.com/stretchr/testify v1.2.2
-	github.com/uber-go/atomic v1.4.0 // indirect
-	github.com/uber-go/tally v3.3.11+incompatible // indirect
-	github.com/uber/jaeger-client-go v2.16.0+incompatible // indirect
-	github.com/uber/jaeger-lib v2.0.0+incompatible // indirect
-	github.com/willf/bitset v1.1.10 // indirect
+	github.com/prometheus/client_golang v1.1.0
+	github.com/prometheus/client_model v0.0.0-20190812154241-14fe0d1b01d4
+	github.com/prometheus/common v0.6.0
+	github.com/prometheus/procfs v0.0.4 // indirect
+	github.com/prometheus/prometheus v0.0.0-20190818123050-43acd0e2e93f
+	github.com/prometheus/tsdb v0.10.0 // indirect
+	github.com/rogpeppe/fastuuid v1.2.0 // indirect
+	github.com/rogpeppe/go-internal v1.3.1 // indirect
+	github.com/sirupsen/logrus v1.4.2 // indirect
+	github.com/stretchr/testify v1.4.0
+	github.com/uber-go/tally v3.3.12+incompatible // indirect
 	go.uber.org/atomic v1.4.0 // indirect
 	go.uber.org/multierr v1.1.0 // indirect
 	go.uber.org/zap v1.10.0
-	google.golang.org/appengine v1.4.0 // indirect
-	google.golang.org/genproto v0.0.0-20190516172635-bb713bdc0e52 // indirect
-	google.golang.org/grpc v1.20.1 // indirect
+	golang.org/x/crypto v0.0.0-20190820162420-60c769a6c586 // indirect
+	golang.org/x/image v0.0.0-20190823064033-3a9bac650e44 // indirect
+	golang.org/x/mobile v0.0.0-20190826170111-cafc553e1ac5 // indirect
+	golang.org/x/net v0.0.0-20190827160401-ba9fcec4b297 // indirect
+	golang.org/x/sys v0.0.0-20190826190057-c7b8b68b1456 // indirect
+	golang.org/x/tools v0.0.0-20190827205025-b29f5f60c37a // indirect
+	google.golang.org/api v0.9.0 // indirect
+	google.golang.org/genproto v0.0.0-20190819201941-24fa4b261c55 // indirect
+	google.golang.org/grpc v1.23.0 // indirect
+	honnef.co/go/tools v0.0.1-2019.2.2 // indirect
 )
+
+replace github.com/prometheus/prometheus => github.com/prometheus/prometheus v0.0.0-20190818123050-43acd0e2e93f
