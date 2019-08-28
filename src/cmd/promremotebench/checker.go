@@ -56,45 +56,59 @@ type Checker interface {
 type checker struct {
 	sync.RWMutex
 
-	values map[string]Datapoints
+	values  map[string]Datapoints
+	aggFunc aggFunc
 }
 
-func newChecker() Checker {
+func newChecker(aggFunc aggFunc) Checker {
 	return &checker{
-		values: make(map[string]Datapoints),
+		values:  make(map[string]Datapoints),
+		aggFunc: aggFunc,
 	}
 }
 
 func (c *checker) Store(hostSeries map[string][]*prompb.TimeSeries) {
 	for host, series := range hostSeries {
-		for _, s := range series {
-			dps := promSamplesToM3Datapoints(s.Samples, sumFunc)
+		if len(series) > 0 {
+			dp := promSeriesToM3Datapoint(series, c.aggFunc)
+
 			c.Lock()
-			c.values[host] = append(c.values[host], dps...)
+			c.values[host] = append(c.values[host], dp)
 			c.Unlock()
 		}
 	}
 }
 
 func (c *checker) Read() map[string]Datapoints {
-	return c.values
+	c.RLock()
+	results := make(map[string]Datapoints, len(c.values))
+	for host, dps := range c.values {
+		results[host] = dps
+	}
+	c.RUnlock()
+
+	return results
 }
 
-// promSamplesToM3Datapoints converts Prometheus samples to M3 datapoints and aggregates
-// them based on a given aggregation function.
-func promSamplesToM3Datapoints(samples []prompb.Sample, aggFunc aggFunc) Datapoints {
-	datapoints := make(Datapoints, 0, len(samples))
-	aggValue := 0.0
-	if len(samples) > 0 {
-		timestamp := promTimestampToTime(samples[0].Timestamp)
-		for _, sample := range samples {
-			aggValue = aggFunc(aggValue, sample.Value)
-		}
+// promSeriesToM3Datapoint collapses Prometheus TimeSeries values to a single M3 datapoint
+// with the aggregation function specified
+func promSeriesToM3Datapoint(series []*prompb.TimeSeries, aggFunc aggFunc) Datapoint {
+	var (
+		aggValue  float64
+		timestamp time.Time
+	)
 
-		datapoints = append(datapoints, Datapoint{Timestamp: timestamp, Value: aggValue})
+	if len(series) > 0 && len(series[0].Samples) > 0 {
+		timestamp = promTimestampToTime(series[0].Samples[0].Timestamp)
 	}
 
-	return datapoints
+	for _, s := range series {
+		for _, sample := range s.Samples {
+			aggValue = aggFunc(aggValue, sample.Value)
+		}
+	}
+
+	return Datapoint{Timestamp: timestamp, Value: aggValue}
 }
 
 // promTimestampToTime converts a prometheus timestamp to time.Time.

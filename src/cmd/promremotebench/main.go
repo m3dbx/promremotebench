@@ -107,7 +107,7 @@ func main() {
 		err    error
 	)
 
-	checker := newChecker()
+	checker := newChecker(sumFunc)
 
 	// Parse env var overrides.
 	if v := os.Getenv(envWrite); v != "" {
@@ -237,10 +237,10 @@ func main() {
 	parsedLabels := parseLabels(*labels, *labelsFromEnv, logger)
 	parsedQueryLabels := parseLabels(*queryLabels, *queryLabelsFromEnv, logger)
 
-	if *query && len(parsedQueryLanbels) == 0 {
-		logger.Warn("No query labels provided. This will result in more metrics returned than expected
+	if *query && len(parsedQueryLabels) == 0 {
+		logger.Warn(`No query labels provided. This will result in more metrics returned than expected
 		if there is more than one instance of promremotebench executing queries due to metric name
-		duplication across promremotebench instances.")
+		duplication across promremotebench instances.`)
 	}
 
 	var parsedQueryHeaders map[string]string

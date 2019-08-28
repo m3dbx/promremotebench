@@ -30,7 +30,7 @@ import (
 )
 
 func TestChecker(t *testing.T) {
-	checker := newChecker()
+	checker := newChecker(sumFunc)
 	hostGen := generators.NewHostsSimulator(10, time.Now(),
 		generators.HostsSimulatorOptions{})
 	series, err := hostGen.Generate(time.Second, time.Second, 0)
