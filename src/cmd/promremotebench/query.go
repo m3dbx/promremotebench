@@ -326,15 +326,7 @@ func (q *queryExecutor) validateQuery(dps Datapoints, data []byte) bool {
 
 	for _, value := range matrix[0].Values {
 		for i < len(dps) {
-			if value.Timestamp.UnixNano() == dps[i].Timestamp.UnixNano() {
-				if float64(value.Value) != dps[i].Value {
-					q.Logger.Error("values did not match for matching timestamps",
-						zap.Int64("common timestamp", dps[i].Timestamp.UnixNano()),
-						zap.Float64("in memory value", float64(value.Value)),
-						zap.Float64("queried value", dps[i].Value))
-					continue
-				}
-
+			if float64(value.Value) == dps[i].Value {
 				matches++
 				i++
 				break
@@ -349,7 +341,7 @@ func (q *queryExecutor) validateQuery(dps Datapoints, data []byte) bool {
 	}
 
 	if matches == 0 {
-		q.Logger.Error("no timestamps matched at all")
+		q.Logger.Error("no values matched at all")
 		return false
 	}
 
