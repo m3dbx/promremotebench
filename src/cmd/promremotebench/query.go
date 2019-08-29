@@ -50,8 +50,10 @@ type queryExecutorOptions struct {
 	Concurrency   int
 	NumWriteHosts int
 	NumSeries     int
-	Step          time.Duration
-	Range         time.Duration
+	LoadStep      time.Duration
+	LoadRange     time.Duration
+	AccuracyStep  time.Duration
+	AccuracyRange time.Duration
 	Aggregation   string
 	Labels        map[string]string
 	Headers       map[string]string
@@ -106,11 +108,29 @@ func (q *queryExecutor) accuracyCheck(checker Checker) {
 
 			curHostnames := checker.GetHostNames()
 			if len(curHostnames) == 0 {
-				q.Logger.Error("no hosts returned in the checker, skipping accuracy check")
+				if i > 0 {
+					q.Logger.Error("no hosts returned in the checker, skipping accuracy check.")
+				}
 				return
 			}
 
-			selectedHost := curHostnames[rand.Intn(len(curHostnames))]
+			var (
+				dps          []Datapoint
+				selectedHost string
+			)
+
+			for j := 0; j < 5; j++ {
+				selectedHost = curHostnames[rand.Intn(len(curHostnames))]
+				dps = checker.GetDatapoints(selectedHost)
+				if len(dps) > 1 {
+					break
+				}
+			}
+
+			if len(dps) <= 1 && i > 1 {
+				q.Logger.Error("couldn't find a host with more than 1 datapoint. Skipping accuracy check")
+			}
+
 			mustWriteString(query, "hostname=\""+selectedHost+"\"")
 
 			// Write the common labels.
@@ -128,12 +148,12 @@ func (q *queryExecutor) accuracyCheck(checker Checker) {
 				mustWriteString(query, "})")
 			}
 
-			res := q.executeQuery(query, true)
+			res := q.executeQuery(query, true, q.AccuracyRange, q.AccuracyStep)
 			if len(res) == 0 {
 				q.Logger.Error("invalid response for accuracy query")
 			}
 
-			q.validateQuery(checker.GetDatapoints(selectedHost), res)
+			q.validateQuery(dps, res)
 		}()
 	}
 }
@@ -217,18 +237,18 @@ func (q *queryExecutor) alertLoad(checker Checker) {
 				mustWriteString(query, "})")
 			}
 
-			q.executeQuery(query, false)
+			q.executeQuery(query, false, q.LoadRange, q.LoadStep)
 		}()
 	}
 }
 
-func (q *queryExecutor) executeQuery(query *strings.Builder, retResult bool) []byte {
+func (q *queryExecutor) executeQuery(query *strings.Builder, retResult bool, queryRange, queryStep time.Duration) []byte {
 	now := time.Now()
 	values := make(url.Values)
 	values.Set("query", query.String())
-	values.Set("start", strconv.Itoa(int(now.Add(-1*q.Range).Unix())))
+	values.Set("start", strconv.Itoa(int(now.Add(-1*queryRange).Unix())))
 	values.Set("end", strconv.Itoa(int(now.Unix())))
-	values.Set("step", q.Step.String())
+	values.Set("step", queryStep.String())
 
 	reqURL := fmt.Sprintf("%s?%s", q.URL, values.Encode())
 	req, err := http.NewRequest(http.MethodGet, reqURL, nil)
@@ -341,7 +361,7 @@ func (q *queryExecutor) validateQuery(dps Datapoints, data []byte) bool {
 	}
 
 	if matches == 0 {
-		q.Logger.Error("no values matched at all")
+		q.Logger.Error("no values matched at all.")
 		return false
 	}
 
