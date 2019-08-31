@@ -50,8 +50,10 @@ const (
 	envLabelsJSONEnv      = "PROMREMOTEBENCH_LABELS_JSON_ENV"
 	envQueryConcurrency   = "PROMREMOTEBENCH_QUERY_CONCURRENCY"
 	envQueryNumSeries     = "PROMREMOTEBENCH_QUERY_NUM_SERIES"
-	envQueryStep          = "PROMREMOTEBENCH_QUERY_STEP"
-	envQueryRange         = "PROMREMOTEBENCH_QUERY_RANGE"
+	envQueryLoadStep      = "PROMREMOTEBENCH_QUERY_LOAD_STEP"
+	envQueryLoadRange     = "PROMREMOTEBENCH_QUERY_LOAD_RANGE"
+	envQueryAccuracyStep  = "PROMREMOTEBENCH_QUERY_ACCURACY_STEP"
+	envQueryAccuracyRange = "PROMREMOTEBENCH_QUERY_ACCURACY_RANGE"
 	envQueryAggregation   = "PROMREMOTEBENCH_QUERY_AGGREGATION"
 	envQueryLabelsJSON    = "PROMREMOTEBENCH_QUERY_LABELS_JSON"
 	envQueryLabelsJSONEnv = "PROMREMOTEBENCH_QUERY_LABELS_JSON_ENV"
@@ -82,11 +84,13 @@ func main() {
 		scrapeSpreadBy        = flag.Float64("spread", 10.0, "The number of times to spread the scrape interval by when emitting samples (for remote write)")
 
 		// query options
-		queryTargetURL     = flag.String("query-target", "http://localhost:7201/query_range", "Target query endpoint (for exercising by proxy remote read)")
+		queryTargetURL     = flag.String("query-target", "http://localhost:7201/api/v1/query_range", "Target query endpoint (for exercising by proxy remote read)")
 		queryConcurrency   = flag.Int("query-concurrency", 10, "Query concurrency value")
-		queryNumSeries     = flag.Int("query-num-series", 500, "Query number of series (will round up to nearest 100), cannot exceed the number of 100*write_num_hosts (since each host sends 100 or so metrics)")
-		queryStep          = flag.Duration("query-step", time.Minute, "Query step size")
-		queryRange         = flag.Duration("query-range", 12*time.Hour, "Query time range size (from now backwards)")
+		queryNumSeries     = flag.Int("query-num-series", 500, "Query number of series (will round up to nearest 100), cannot exceed the number of 101*write_num_hosts (since each host sends 101 metrics)")
+		queryLoadStep      = flag.Duration("query-load-step", time.Minute, "Query step size")
+		queryLoadRange     = flag.Duration("query-load-range", 12*time.Hour, "Query time range size (from now backwards)")
+		queryAccuracyStep  = flag.Duration("query-accuracy-step", 10*time.Second, "Query step size")
+		queryAccuracyRange = flag.Duration("query-accuracy-range", 35*time.Second, "Query time range size (from now backwards)")
 		queryAggregation   = flag.String("query-aggregation", "sum", "Query aggregation")
 		queryLabels        = flag.String("query-labels", "{}", "Labels in JSON format to use in all queries")
 		queryLabelsFromEnv = flag.String("query-labels-env", "{}", "Labels in JSON format, with the string values as environment variable names, to use in all queries")
@@ -107,7 +111,7 @@ func main() {
 		err    error
 	)
 
-	checker := newChecker()
+	checker := newChecker(sumFunc)
 
 	// Parse env var overrides.
 	if v := os.Getenv(envWrite); v != "" {
@@ -185,18 +189,32 @@ func main() {
 				zap.String("var", envQueryNumSeries), zap.Error(err))
 		}
 	}
-	if v := os.Getenv(envQueryStep); v != "" {
-		*queryStep, err = time.ParseDuration(v)
+	if v := os.Getenv(envQueryLoadStep); v != "" {
+		*queryLoadStep, err = time.ParseDuration(v)
 		if err != nil {
 			logger.Fatal("could not parse env var",
-				zap.String("var", envQueryStep), zap.Error(err))
+				zap.String("var", envQueryLoadStep), zap.Error(err))
 		}
 	}
-	if v := os.Getenv(envQueryRange); v != "" {
-		*queryRange, err = time.ParseDuration(v)
+	if v := os.Getenv(envQueryLoadRange); v != "" {
+		*queryLoadRange, err = time.ParseDuration(v)
 		if err != nil {
 			logger.Fatal("could not parse env var",
-				zap.String("var", envQueryRange), zap.Error(err))
+				zap.String("var", envQueryLoadRange), zap.Error(err))
+		}
+	}
+	if v := os.Getenv(envQueryAccuracyStep); v != "" {
+		*queryAccuracyStep, err = time.ParseDuration(v)
+		if err != nil {
+			logger.Fatal("could not parse env var",
+				zap.String("var", envQueryAccuracyStep), zap.Error(err))
+		}
+	}
+	if v := os.Getenv(envQueryAccuracyRange); v != "" {
+		*queryAccuracyRange, err = time.ParseDuration(v)
+		if err != nil {
+			logger.Fatal("could not parse env var",
+				zap.String("var", envQueryAccuracyRange), zap.Error(err))
 		}
 	}
 	if v := os.Getenv(envQueryAggregation); v != "" {
@@ -236,6 +254,12 @@ func main() {
 	// Parse opts further.
 	parsedLabels := parseLabels(*labels, *labelsFromEnv, logger)
 	parsedQueryLabels := parseLabels(*queryLabels, *queryLabelsFromEnv, logger)
+
+	if *query && len(parsedQueryLabels) == 0 {
+		logger.Warn(`No query labels provided. This will result in more metrics returned than expected
+		if there is more than one instance of promremotebench executing queries due to metric name
+		duplication across promremotebench instances.`)
+	}
 
 	var parsedQueryHeaders map[string]string
 	if err := json.Unmarshal([]byte(*queryHeaders), &parsedQueryHeaders); err != nil {
@@ -292,8 +316,10 @@ func main() {
 				Concurrency:   *queryConcurrency,
 				NumWriteHosts: *numHosts,
 				NumSeries:     *queryNumSeries,
-				Step:          *queryStep,
-				Range:         *queryRange,
+				LoadStep:      *queryLoadStep,
+				LoadRange:     *queryLoadRange,
+				AccuracyStep:  *queryAccuracyStep,
+				AccuracyRange: *queryAccuracyRange,
 				Aggregation:   *queryAggregation,
 				Labels:        parsedQueryLabels,
 				Headers:       parsedQueryHeaders,
@@ -302,7 +328,7 @@ func main() {
 				DebugLength:   *queryDebugLength,
 				Logger:        logger,
 			})
-			q.Run()
+			q.Run(checker)
 		}()
 	}
 

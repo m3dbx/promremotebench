@@ -36,7 +36,7 @@ type HostsSimulator struct {
 	sync.RWMutex
 	hosts        []devops.Host
 	allHosts     []devops.Host
-	appendLabels []*prompb.Label
+	appendLabels []prompb.Label
 	hostIndex    int
 }
 
@@ -55,10 +55,10 @@ func NewHostsSimulator(
 		hosts = append(hosts, host)
 	}
 
-	var appendLabels []*prompb.Label
+	var appendLabels []prompb.Label
 	if opts.Labels != nil {
 		for k, v := range opts.Labels {
-			appendLabels = append(appendLabels, &prompb.Label{
+			appendLabels = append(appendLabels, prompb.Label{
 				Name:  k,
 				Value: v,
 			})
@@ -89,7 +89,7 @@ func (h *HostsSimulator) Hosts() []devops.Host {
 func (h *HostsSimulator) Generate(
 	progressBy, scrapeDuration time.Duration,
 	newSeriesPercent float64,
-) (map[string][]*prompb.TimeSeries, error) {
+) (map[string][]prompb.TimeSeries, error) {
 	h.Lock()
 	defer h.Unlock()
 
@@ -135,9 +135,9 @@ func (h *HostsSimulator) Generate(
 
 	nowUnixMilliseconds := now.UnixNano() / int64(time.Millisecond)
 
-	hostValues := make(map[string][]*prompb.TimeSeries)
+	hostValues := make(map[string][]prompb.TimeSeries)
 	for _, host := range sendFromHosts {
-		allSeries := make([]*prompb.TimeSeries, 0, len(host.SimulatedMeasurements))
+		allSeries := make([]prompb.TimeSeries, 0, len(host.SimulatedMeasurements))
 		for _, measurement := range host.SimulatedMeasurements {
 			p := common.MakeUsablePoint()
 			measurement.ToPoint(p)
@@ -156,19 +156,19 @@ func (h *HostsSimulator) Generate(
 					panic(fmt.Sprintf("bad field %s with value type: %T with ", fieldName, v))
 				}
 
-				labels := []*prompb.Label{
-					&prompb.Label{Name: labels.MetricName, Value: string(p.MeasurementName)},
-					&prompb.Label{Name: "measurement", Value: string(fieldName)},
-					&prompb.Label{Name: string(devops.MachineTagKeys[0]), Value: string(host.Name)},
-					&prompb.Label{Name: string(devops.MachineTagKeys[1]), Value: string(host.Region)},
-					&prompb.Label{Name: string(devops.MachineTagKeys[2]), Value: string(host.Datacenter)},
-					&prompb.Label{Name: string(devops.MachineTagKeys[3]), Value: string(host.Rack)},
-					&prompb.Label{Name: string(devops.MachineTagKeys[4]), Value: string(host.OS)},
-					&prompb.Label{Name: string(devops.MachineTagKeys[5]), Value: string(host.Arch)},
-					&prompb.Label{Name: string(devops.MachineTagKeys[6]), Value: string(host.Team)},
-					&prompb.Label{Name: string(devops.MachineTagKeys[7]), Value: string(host.Service)},
-					&prompb.Label{Name: string(devops.MachineTagKeys[8]), Value: string(host.ServiceVersion)},
-					&prompb.Label{Name: string(devops.MachineTagKeys[9]), Value: string(host.ServiceEnvironment)},
+				labels := []prompb.Label{
+					prompb.Label{Name: labels.MetricName, Value: string(p.MeasurementName)},
+					prompb.Label{Name: "measurement", Value: string(fieldName)},
+					prompb.Label{Name: string(devops.MachineTagKeys[0]), Value: string(host.Name)},
+					prompb.Label{Name: string(devops.MachineTagKeys[1]), Value: string(host.Region)},
+					prompb.Label{Name: string(devops.MachineTagKeys[2]), Value: string(host.Datacenter)},
+					prompb.Label{Name: string(devops.MachineTagKeys[3]), Value: string(host.Rack)},
+					prompb.Label{Name: string(devops.MachineTagKeys[4]), Value: string(host.OS)},
+					prompb.Label{Name: string(devops.MachineTagKeys[5]), Value: string(host.Arch)},
+					prompb.Label{Name: string(devops.MachineTagKeys[6]), Value: string(host.Team)},
+					prompb.Label{Name: string(devops.MachineTagKeys[7]), Value: string(host.Service)},
+					prompb.Label{Name: string(devops.MachineTagKeys[8]), Value: string(host.ServiceVersion)},
+					prompb.Label{Name: string(devops.MachineTagKeys[9]), Value: string(host.ServiceEnvironment)},
 				}
 				if len(h.appendLabels) > 0 {
 					labels = append(labels, h.appendLabels...)
@@ -179,7 +179,7 @@ func (h *HostsSimulator) Generate(
 					Timestamp: nowUnixMilliseconds,
 				}
 
-				allSeries = append(allSeries, &prompb.TimeSeries{
+				allSeries = append(allSeries, prompb.TimeSeries{
 					Labels:  labels,
 					Samples: []prompb.Sample{sample},
 				})

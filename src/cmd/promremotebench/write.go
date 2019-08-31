@@ -87,7 +87,7 @@ func writeLoop(
 }
 
 func remoteWrite(
-	series []*prompb.TimeSeries,
+	series []prompb.TimeSeries,
 	remotePromClient *Client,
 	remotePromBatchSize int,
 	logger *zap.Logger,
@@ -101,7 +101,7 @@ func remoteWrite(
 }
 
 func remoteWriteBatch(
-	series []*prompb.TimeSeries,
+	series []prompb.TimeSeries,
 	remotePromClient *Client,
 	logger *zap.Logger,
 ) {
@@ -143,7 +143,7 @@ type recoverableError struct {
 
 // NewClient creates a new Client.
 func NewClient(url string, timeout time.Duration) (*Client, error) {
-	httpClient, err := config.NewClientFromConfig(config.HTTPClientConfig{}, "remote_storage")
+	httpClient, err := config.NewClientFromConfig(config.HTTPClientConfig{}, "remote_storage", false)
 	if err != nil {
 		return nil, err
 	}

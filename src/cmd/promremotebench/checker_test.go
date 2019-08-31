@@ -30,17 +30,18 @@ import (
 )
 
 func TestChecker(t *testing.T) {
-	checker := newChecker()
+	checker := newChecker(sumFunc)
 	hostGen := generators.NewHostsSimulator(10, time.Now(),
 		generators.HostsSimulatorOptions{})
 	series, err := hostGen.Generate(time.Second, time.Second, 0)
 	require.NoError(t, err)
 
 	checker.Store(series)
+	hostnames := checker.GetHostNames()
+	require.Equal(t, 10, len(hostnames))
 
-	results := checker.Read()
-	for host := range results {
-		_, ok := series[host]
-		require.True(t, ok)
+	for _, hostname := range hostnames {
+		dps := checker.GetDatapoints(hostname)
+		require.Equal(t, 1, len(dps))
 	}
 }
