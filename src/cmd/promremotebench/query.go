@@ -346,22 +346,21 @@ func (q *queryExecutor) validateQuery(dps Datapoints, data []byte) bool {
 
 	if len(matrix[0].Values) == 0 {
 		q.Logger.Warn("No results returned from query. There may be a slight delay in ingestion")
+		return false
 	}
 
 	for _, value := range matrix[0].Values {
 		for i < len(dps) {
 			if float64(value.Value) == dps[i].Value {
-				matches++
 				i++
+				matches++
 				break
 			}
 
 			i++
 		}
 
-		if i == len(dps) {
-			break
-		}
+		i = 0
 	}
 
 	if matches == 0 {

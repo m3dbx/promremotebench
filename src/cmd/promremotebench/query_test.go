@@ -22,6 +22,7 @@ package main
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zaptest"
@@ -48,6 +49,38 @@ const testResult = `{
 	}
  }`
 
+const testResult2 = `
+ {
+    "status": "success",
+    "data": {
+        "resultType": "matrix",
+        "result": [
+            {
+                "metric": {},
+                "values": [
+                    [
+                        1567192552,
+                        "2298081297676.0757"
+                    ],
+                    [
+                        1567192562,
+                        "2298619694338.755"
+                    ],
+                    [
+                        1567192572,
+                        "2299091718680.2"
+                    ],
+                    [
+                        1567192582,
+						"2299531757764.756"
+                    ]
+                ],
+                "step_size_ms": 10000
+            }
+        ]
+    }
+}`
+
 func TestValidateQuery(t *testing.T) {
 	query := newQueryExecutor(queryExecutorOptions{Logger: zaptest.NewLogger(t)})
 	data := []byte(testResult)
@@ -64,6 +97,55 @@ func TestValidateQuery(t *testing.T) {
 			Datapoint{
 				Timestamp: promTimestampToTime(1435781460781),
 				Value:     1,
+			},
+		},
+		data,
+	))
+
+	data = []byte(testResult2)
+	require.True(t, query.validateQuery(
+		[]Datapoint{
+			Datapoint{
+				Timestamp: time.Now(),
+				Value:     2297275298167.599,
+			},
+			Datapoint{
+				Timestamp: time.Now(),
+				Value:     2297369112899.5605,
+			},
+			Datapoint{
+				Timestamp: time.Now(),
+				Value:     2297325109692.599,
+			},
+			Datapoint{
+				Timestamp: time.Now(),
+				Value:     2298081297676.075,
+			},
+			Datapoint{
+				Timestamp: time.Now(),
+				Value:     2298619694338.755,
+			},
+			Datapoint{
+				Timestamp: time.Now(),
+				Value:     2299091718680.2,
+			},
+			Datapoint{
+				Timestamp: time.Now(),
+				Value:     2299531757764.756,
+			},
+		},
+		data,
+	))
+
+	require.False(t, query.validateQuery(
+		[]Datapoint{
+			Datapoint{
+				Timestamp: time.Now(),
+				Value:     1,
+			},
+			Datapoint{
+				Timestamp: time.Now(),
+				Value:     2,
 			},
 		},
 		data,
