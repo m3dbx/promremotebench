@@ -26,11 +26,17 @@ import (
 
 	"promremotebench/pkg/generators"
 
+	"github.com/prometheus/prometheus/prompb"
 	"github.com/stretchr/testify/require"
 )
 
 func TestChecker(t *testing.T) {
-	checker := newChecker(sumFunc)
+	checker := newChecker(checkerOptions{
+		aggFunc:               sumFunc,
+		cleanTickDuration:     time.Minute,
+		expiredSeriesDuration: time.Minute,
+		targetLen:             10,
+	})
 	hostGen := generators.NewHostsSimulator(10, time.Now(),
 		generators.HostsSimulatorOptions{})
 	series, err := hostGen.Generate(time.Second, time.Second, 0)
@@ -44,4 +50,59 @@ func TestChecker(t *testing.T) {
 		dps := checker.GetDatapoints(hostname)
 		require.Equal(t, 1, len(dps))
 	}
+}
+
+func TestCheckerCleanup(t *testing.T) {
+	checker := newChecker(checkerOptions{
+		aggFunc:               sumFunc,
+		cleanTickDuration:     15 * time.Millisecond,
+		expiredSeriesDuration: 20 * time.Millisecond,
+		targetLen:             2,
+	})
+
+	firstUnixMilliseconds := time.Now().Add(-30*time.Millisecond).UnixNano() / int64(time.Millisecond)
+
+	sample := prompb.Sample{
+		Value:     1.0,
+		Timestamp: firstUnixMilliseconds,
+	}
+	series1 := prompb.TimeSeries{
+		Samples: []prompb.Sample{sample},
+	}
+	series2 := prompb.TimeSeries{
+		Samples: []prompb.Sample{sample},
+	}
+	hostMap := map[string][]prompb.TimeSeries{
+		"host1": []prompb.TimeSeries{series1},
+		"host2": []prompb.TimeSeries{series2},
+	}
+
+	checker.Store(hostMap)
+	hostnames := checker.GetHostNames()
+	require.Equal(t, 2, len(hostnames))
+
+	secondUnixMilliseconds := time.Now().Add(-10*time.Millisecond).UnixNano() / int64(time.Millisecond)
+	series1.Samples[0].Timestamp = secondUnixMilliseconds
+	checker.Store(map[string][]prompb.TimeSeries{
+		"host1": []prompb.TimeSeries{series1},
+	})
+
+	lastUnixMilliseconds := time.Now().UnixNano() / int64(time.Millisecond)
+	series1.Samples[0].Timestamp = lastUnixMilliseconds
+	checker.Store(map[string][]prompb.TimeSeries{
+		"host1": []prompb.TimeSeries{series1},
+	})
+
+	dps := checker.GetDatapoints("host1")
+	require.Equal(t, 3, len(dps))
+
+	for len(checker.GetHostNames()) == 2 {
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	require.Equal(t, 1, len(checker.GetHostNames()))
+	dps = checker.GetDatapoints("host1")
+	require.Equal(t, 2, len(dps))
+	require.Equal(t, promTimestampToTime(secondUnixMilliseconds), dps[0].Timestamp)
+	require.Equal(t, promTimestampToTime(lastUnixMilliseconds), dps[1].Timestamp)
 }

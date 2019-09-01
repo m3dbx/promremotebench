@@ -48,6 +48,9 @@ const (
 	envNewSeriesPercent   = "PROMREMOTEBENCH_NEW_SERIES_PERCENTAGE"
 	envLabelsJSON         = "PROMREMOTEBENCH_LABELS_JSON"
 	envLabelsJSONEnv      = "PROMREMOTEBENCH_LABELS_JSON_ENV"
+	envCheckerTick        = "PROMREMOTEBENCH_CHECKER_TICK"
+	envCheckerExpiration  = "PROMREMOTEBENCH_CHECKER_EXPIRATION"
+	envCheckerTargetLen   = "PROMREMOTEBENCH_CHECKER_TARGET_LEN"
 	envQueryConcurrency   = "PROMREMOTEBENCH_QUERY_CONCURRENCY"
 	envQueryNumSeries     = "PROMREMOTEBENCH_QUERY_NUM_SERIES"
 	envQueryLoadStep      = "PROMREMOTEBENCH_QUERY_LOAD_STEP"
@@ -83,6 +86,11 @@ func main() {
 		remoteBatchSize       = flag.Int("batch", 128, "Number of metrics per batch send via remote write (for remote write)")
 		scrapeSpreadBy        = flag.Float64("spread", 10.0, "The number of times to spread the scrape interval by when emitting samples (for remote write)")
 
+		// checker options
+		checkerTick       = flag.Duration("checker-tick", time.Minute, "Checker tick for trimming values and series")
+		checkerExpiration = flag.Duration("checker-expiration", time.Minute, "Checker threshold to expire stale series")
+		checkerTargetLen  = flag.Int("checker-target-len", 10, "Target length of values to be stored by checker")
+
 		// query options
 		queryTargetURL     = flag.String("query-target", "http://localhost:7201/api/v1/query_range", "Target query endpoint (for exercising by proxy remote read)")
 		queryConcurrency   = flag.Int("query-concurrency", 10, "Query concurrency value")
@@ -110,8 +118,6 @@ func main() {
 		logger = instrument.NewOptions().Logger()
 		err    error
 	)
-
-	checker := newChecker(sumFunc)
 
 	// Parse env var overrides.
 	if v := os.Getenv(envWrite); v != "" {
@@ -250,6 +256,27 @@ func main() {
 				zap.String("var", envQueryDebugLength), zap.Error(err))
 		}
 	}
+	if v := os.Getenv(envCheckerTick); v != "" {
+		*checkerTick, err = time.ParseDuration(v)
+		if err != nil {
+			logger.Fatal("could not parse env var",
+				zap.String("var", envCheckerTick), zap.Error(err))
+		}
+	}
+	if v := os.Getenv(envCheckerExpiration); v != "" {
+		*checkerExpiration, err = time.ParseDuration(v)
+		if err != nil {
+			logger.Fatal("could not parse env var",
+				zap.String("var", envCheckerExpiration), zap.Error(err))
+		}
+	}
+	if v := os.Getenv(envCheckerTargetLen); v != "" {
+		*checkerTargetLen, err = strconv.Atoi(v)
+		if err != nil {
+			logger.Fatal("could not parse env var",
+				zap.String("var", envCheckerTargetLen), zap.Error(err))
+		}
+	}
 
 	// Parse opts further.
 	parsedLabels := parseLabels(*labels, *labelsFromEnv, logger)
@@ -282,6 +309,13 @@ func main() {
 	}
 	logger.Info("simulating hosts",
 		zap.Strings("hosts", hosts))
+
+	checker := newChecker(checkerOptions{
+		aggFunc:               sumFunc,
+		cleanTickDuration:     *checkerTick,
+		expiredSeriesDuration: *checkerExpiration,
+		targetLen:             *checkerTargetLen,
+	})
 
 	// Start workloads.
 	if *write {

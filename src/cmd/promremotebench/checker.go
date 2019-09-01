@@ -61,13 +61,28 @@ type checker struct {
 
 	values  map[string]Datapoints
 	aggFunc aggFunc
+
+	expiredSeriesDuration time.Duration
+	targetLen             int
 }
 
-func newChecker(aggFunc aggFunc) Checker {
-	return &checker{
-		values:  make(map[string]Datapoints),
-		aggFunc: aggFunc,
+type checkerOptions struct {
+	aggFunc               aggFunc
+	cleanTickDuration     time.Duration
+	expiredSeriesDuration time.Duration
+	targetLen             int
+}
+
+func newChecker(opts checkerOptions) Checker {
+	c := &checker{
+		values:                make(map[string]Datapoints),
+		aggFunc:               opts.aggFunc,
+		expiredSeriesDuration: opts.expiredSeriesDuration,
+		targetLen:             opts.targetLen,
 	}
+
+	go c.cleanupLoop(opts.cleanTickDuration)
+	return c
 }
 
 func (c *checker) Store(hostSeries map[string][]prompb.TimeSeries) {
@@ -102,6 +117,44 @@ func (c *checker) GetHostNames() []string {
 	c.RUnlock()
 
 	return results
+}
+
+func (c *checker) cleanupLoop(loopDuration time.Duration) {
+	hostsToRemove := make([]string, 0, 4)
+	hostsToTrim := make([]string, 0, 20)
+
+	for {
+		time.Sleep(loopDuration)
+		now := time.Now()
+		c.RLock()
+		for host, values := range c.values {
+			if now.Sub(values[len(values)-1].Timestamp) > c.expiredSeriesDuration {
+				hostsToRemove = append(hostsToRemove, host)
+				continue
+			}
+
+			if len(values) > c.targetLen {
+				hostsToTrim = append(hostsToTrim, host)
+			}
+		}
+		c.RUnlock()
+
+		if len(hostsToRemove) > 0 || len(hostsToTrim) > 0 {
+			c.Lock()
+			for _, host := range hostsToRemove {
+				delete(c.values, host)
+			}
+
+			for _, host := range hostsToTrim {
+				copy(c.values[host][:], c.values[host][len(c.values[host])-c.targetLen:])
+				c.values[host] = c.values[host][:c.targetLen]
+			}
+			c.Unlock()
+		}
+
+		hostsToRemove = hostsToRemove[:0]
+		hostsToTrim = hostsToTrim[:0]
+	}
 }
 
 // promSeriesToM3Datapoint collapses Prometheus TimeSeries values to a single M3 datapoint
