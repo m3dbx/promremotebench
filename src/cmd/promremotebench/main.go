@@ -315,7 +315,7 @@ func main() {
 		cleanTickDuration:     *checkerTick,
 		expiredSeriesDuration: *checkerExpiration,
 		targetLen:             *checkerTargetLen,
-	})
+	}, *numHosts)
 
 	// Start workloads.
 	if *write {

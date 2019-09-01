@@ -36,7 +36,7 @@ func TestChecker(t *testing.T) {
 		cleanTickDuration:     time.Minute,
 		expiredSeriesDuration: time.Minute,
 		targetLen:             10,
-	})
+	}, 10)
 	hostGen := generators.NewHostsSimulator(10, time.Now(),
 		generators.HostsSimulatorOptions{})
 	series, err := hostGen.Generate(time.Second, time.Second, 0)
@@ -58,7 +58,7 @@ func TestCheckerCleanup(t *testing.T) {
 		cleanTickDuration:     15 * time.Millisecond,
 		expiredSeriesDuration: 20 * time.Millisecond,
 		targetLen:             2,
-	})
+	}, 2)
 
 	firstUnixMilliseconds := time.Now().Add(-30*time.Millisecond).UnixNano() / int64(time.Millisecond)
 
