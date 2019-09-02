@@ -128,13 +128,13 @@ func (c *checker) cleanupLoop(loopDuration time.Duration, numHosts int) {
 		now := time.Now()
 		c.RLock()
 		for host, values := range c.values {
-			// checking for hosts with no recent values (expired from generator)
+			// checking for hosts with no recent values (expired from generator).
 			if now.Sub(values[len(values)-1].Timestamp) > c.expiredSeriesDuration {
 				hostsToRemove = append(hostsToRemove, host)
 				continue
 			}
 
-			// checking to trim values once there are too many
+			// checking to trim values once there are too many.
 			if len(values) > c.targetLen {
 				hostsToTrim = append(hostsToTrim, host)
 			}
@@ -148,7 +148,7 @@ func (c *checker) cleanupLoop(loopDuration time.Duration, numHosts int) {
 			}
 
 			// trimming values by copying the most recent dps to the front and then truncating
-			// the slice
+			// the slice.
 			for _, host := range hostsToTrim {
 				copy(c.values[host][:], c.values[host][len(c.values[host])-c.targetLen:])
 				c.values[host] = c.values[host][:c.targetLen]
