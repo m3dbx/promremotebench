@@ -1,12 +1,8 @@
-golangci-lint_version    := v1.17.1
-gopath_prefix            := $(HOME)/src
-promremote_package       := github.com/m3db/promremotebench# change this to m3dbx
-promremote_package_path  := $(gopath_prefix)/$(promremote_package)/src/cmd/promremotebench
-relative_path            := ./src/cmd/promremotebench
-
-.PHONY: validate-gopath 
-validate-gopath:
-	@stat $(GOPATH) > /dev/null
+golangci-lint_version      := v1.17.1
+gopath_prefix              := $(HOME)/src
+promremote_package         := github.com/m3db/promremotebench# change this to m3dbx
+promremote_package_path    := $(gopath_prefix)/$(promremote_package)/src/cmd/promremotebench
+src_relative_path          := ./src/
 
 install-linter:
 	echo "Installing golangci-lint..."
@@ -17,4 +13,4 @@ linter:
 	make install-linter
 	@echo "--- linting promremotebench in $(promremote_package_path)"
 	go mod download -json { Path: /Users/braskin/src/github.com/m3db/promremotebench/src/go.mod }
-	cd $(relative_path) && golangci-lint run
+	cd $(src_relative_path) && golangci-lint run 
