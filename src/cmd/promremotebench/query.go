@@ -278,6 +278,7 @@ func (q *queryExecutor) executeQuery(query *strings.Builder, retResult bool, que
 	}
 
 	defer func() {
+		//nolint:errcheck
 		io.Copy(ioutil.Discard, resp.Body)
 		resp.Body.Close()
 	}()
@@ -352,7 +353,6 @@ func (q *queryExecutor) validateQuery(dps Datapoints, data []byte) bool {
 	for _, value := range matrix[0].Values {
 		for i < len(dps) {
 			if float64(value.Value) == dps[i].Value {
-				i++
 				matches++
 				break
 			}

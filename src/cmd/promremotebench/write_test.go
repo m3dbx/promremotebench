@@ -44,10 +44,8 @@ import (
 func TestRemoteWrite(t *testing.T) {
 	logger := instrument.NewOptions().Logger()
 	tests := []struct {
-		name            string
-		numHosts        int
-		expectedBatches int
-		expectedSeries  int
+		name     string
+		numHosts int
 	}{
 		{
 			name:     "one host",
