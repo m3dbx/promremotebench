@@ -12,5 +12,4 @@ install-linter:
 linter:
 	make install-linter
 	@echo "--- linting promremotebench in $(promremote_package_path)"
-	go mod download -json { Path: /Users/braskin/src/github.com/m3db/promremotebench/src/go.mod }
 	cd $(src_relative_path) && golangci-lint run 
