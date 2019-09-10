@@ -332,7 +332,8 @@ func main() {
 				gatherer := newGatherer(hostGen, time.Duration(scrapeDuration),
 					*newSeriesPercent, logger, checker)
 				handler := promhttp.HandlerFor(gatherer, promhttp.HandlerOpts{
-					ErrorHandling: promhttp.PanicOnError,
+					ErrorHandling: promhttp.ContinueOnError,
+					ErrorLog:      newPromHTTPErrorLogger(logger),
 				})
 				err := http.ListenAndServe(*scrapeServer, handler)
 				if err != nil {
@@ -367,6 +368,18 @@ func main() {
 	}
 
 	xos.WaitForInterrupt(logger, xos.InterruptOptions{})
+}
+
+func newPromHTTPErrorLogger(logger *zap.Logger) promhttp.Logger {
+	return promHTTPErrorLogger{logger: logger.Sugar()}
+}
+
+type promHTTPErrorLogger struct {
+	logger *zap.SugaredLogger
+}
+
+func (l promHTTPErrorLogger) Println(v ...interface{}) {
+	l.logger.Error(v...)
 }
 
 func parseLabels(
