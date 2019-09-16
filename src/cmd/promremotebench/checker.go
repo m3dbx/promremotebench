@@ -110,7 +110,7 @@ func (c *checker) GetHostNames() []string {
 	c.RLock()
 	results := make([]string, len(c.values))
 	i := 0
-	for host, _ := range c.values {
+	for host := range c.values {
 		results[i] = host
 		i++
 	}
