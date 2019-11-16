@@ -110,7 +110,7 @@ func (c *checker) GetHostNames() []string {
 	c.RLock()
 	results := make([]string, len(c.values))
 	i := 0
-	for host, _ := range c.values {
+	for host := range c.values {
 		results[i] = host
 		i++
 	}
@@ -124,7 +124,7 @@ func (c *checker) cleanupLoop(loopDuration time.Duration, numHosts int) {
 	hostsToTrim := make([]string, 0, numHosts)
 
 	ticker := time.NewTicker(loopDuration)
-	for _ = range ticker.C {
+	for range ticker.C {
 		now := time.Now()
 		c.RLock()
 		for host, values := range c.values {

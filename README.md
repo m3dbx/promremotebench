@@ -38,6 +38,7 @@ spec:
         image: quay.io/m3db/promremotebench:latest
         env:
         - name: PROMREMOTEBENCH_TARGET
+          # NB: this can be a comma separated string of targets for writing to multiple targets.
           value: "http://m3coordinator-dedicated-bench-cluster:7201/api/v1/prom/remote/write"
         - name: PROMREMOTEBENCH_NUM_HOSTS
           value: "1000"

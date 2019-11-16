@@ -254,6 +254,7 @@ github.com/m3db/m3 v0.10.2 h1:oF71vvJpOM46R7Gi+JxnzW1G+xkPw2ufcJLCCgipN6s=
 github.com/m3db/m3 v0.10.2/go.mod h1:7izI0EeTws4qSNJ1mb1rF0c3PKbQbogUFDsfAgcH2jo=
 github.com/m3db/m3 v0.11.0 h1:c/226VQ4Il9agFXBvDfxjY3shKOVFjkShGQlAQlqTfo=
 github.com/m3db/m3 v0.11.0/go.mod h1:7izI0EeTws4qSNJ1mb1rF0c3PKbQbogUFDsfAgcH2jo=
+github.com/m3db/m3 v0.14.2 h1:cdEsX+4f0eufXf/Cn7zibMLngK4ncZYHZlbGeSxIKDQ=
 github.com/m3db/prometheus_client_golang v0.8.1 h1:t7w/tcFws81JL1j5sqmpqcOyQOpH4RDOmIe3A3fdN3w=
 github.com/m3db/prometheus_client_golang v0.8.1/go.mod h1:8R/f1xYhXWq59KD/mbRqoBulXejss7vYtYzWmruNUwI=
 github.com/m3db/prometheus_client_model v0.1.0 h1:cg1+DiuyT6x8h9voibtarkH1KT6CmsewBSaBhe8wzLo=

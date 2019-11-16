@@ -26,6 +26,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"promremotebench/pkg/generators"
@@ -70,13 +71,23 @@ const (
 	maxNumScrapesActive = 4
 )
 
+type targetUrls []string
+
+func (u *targetUrls) String() string {
+	return "a slice of target urls"
+}
+
+func (u *targetUrls) Set(value string) error {
+	*u = append(*u, value)
+	return nil
+}
+
 func main() {
 	var (
 		write = flag.Bool("write", true, "enable write load benchmarking")
 		query = flag.Bool("query", false, "enable query load benchmarking")
 
 		// write options
-		targetURL             = flag.String("target", "http://localhost:7201/receive", "Target remote write endpoint (for remote write)")
 		scrapeServer          = flag.String("scrape-server", "", "Listen address for scrape HTTP server (instead of remote write)")
 		numHosts              = flag.Int("hosts", 100, "Number of hosts to mimic scrapes from")
 		labels                = flag.String("labels", "{}", "Labels in JSON format to append to all metrics")
@@ -92,7 +103,6 @@ func main() {
 		checkerTargetLen  = flag.Int("checker-target-len", 10, "Target length of values to be stored by checker")
 
 		// query options
-		queryTargetURL     = flag.String("query-target", "http://localhost:7201/api/v1/query_range", "Target query endpoint (for exercising by proxy remote read)")
 		queryConcurrency   = flag.Int("query-concurrency", 10, "Query concurrency value")
 		queryNumSeries     = flag.Int("query-num-series", 500, "Query number of series (will round up to nearest 100), cannot exceed the number of 101*write_num_hosts (since each host sends 101 metrics)")
 		queryLoadStep      = flag.Duration("query-load-step", time.Minute, "Query step size")
@@ -108,10 +118,22 @@ func main() {
 		queryDebugLength   = flag.Int("query-debug-length", 128, "Query debug character length to print, use zero to print entire response")
 	)
 
+	// Can have multiple write-targets.
+	var writeTargetURLs targetUrls
+	flag.Var(&writeTargetURLs, "target", "Target remote write endpoint (for remote write)")
+
+	// Can have multiple query-targets.
+	var queryTargetURLs targetUrls
+	flag.Var(&queryTargetURLs, "query-target", "Target query endpoint(s) (for exercising by proxy remote read)")
 	flag.Parse()
-	if len(*targetURL) == 0 {
+
+	if len(writeTargetURLs) == 0 {
 		flag.Usage()
 		os.Exit(-1)
+	}
+
+	if len(queryTargetURLs) == 0 {
+		queryTargetURLs = targetUrls{"http://localhost:7201/api/v1/query_range"}
 	}
 
 	var (
@@ -135,13 +157,13 @@ func main() {
 		}
 	}
 	if v := os.Getenv(envTarget); v != "" {
-		*targetURL = v
+		writeTargetURLs = strings.Split(v, ",")
 	}
 	if v := os.Getenv(envScrapeServer); v != "" {
 		*scrapeServer = v
 	}
 	if v := os.Getenv(envQueryTarget); v != "" {
-		*queryTargetURL = v
+		queryTargetURLs = strings.Split(v, ",")
 	}
 	if v := os.Getenv(envInterval); v != "" {
 		*scrapeIntervalSeconds, err = strconv.ParseFloat(v, 64)
@@ -297,7 +319,7 @@ func main() {
 	now := time.Now()
 	hostGen := generators.NewHostsSimulator(*numHosts, now,
 		generators.HostsSimulatorOptions{Labels: parsedLabels})
-	client, err := NewClient(*targetURL, time.Minute)
+	client, err := NewClient(writeTargetURLs, time.Minute)
 	if err != nil {
 		logger.Fatal("error creating remote client",
 			zap.Error(err))
@@ -347,7 +369,7 @@ func main() {
 		go func() {
 			logger.Info("starting query load")
 			q := newQueryExecutor(queryExecutorOptions{
-				URL:           *queryTargetURL,
+				URLs:          queryTargetURLs,
 				Concurrency:   *queryConcurrency,
 				NumWriteHosts: *numHosts,
 				NumSeries:     *queryNumSeries,
