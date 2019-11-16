@@ -77,6 +77,8 @@ func (u *targetUrls) String() string {
 	return "a slice of target urls"
 }
 
+// Set satisfies flag.Value; this will append seen values to the slice for the
+// case with multiple flags.
 func (u *targetUrls) Set(value string) error {
 	*u = append(*u, value)
 	return nil
@@ -120,7 +122,7 @@ func main() {
 
 	// Can have multiple write-targets.
 	var writeTargetURLs targetUrls
-	flag.Var(&writeTargetURLs, "target", "Target remote write endpoint (for remote write)")
+	flag.Var(&writeTargetURLs, "target", "Target remote write endpoint(s) (for remote write)")
 
 	// Can have multiple query-targets.
 	var queryTargetURLs targetUrls
@@ -128,8 +130,7 @@ func main() {
 	flag.Parse()
 
 	if len(writeTargetURLs) == 0 {
-		flag.Usage()
-		os.Exit(-1)
+		queryTargetURLs = targetUrls{"http://localhost:7201/receive"}
 	}
 
 	if len(queryTargetURLs) == 0 {
