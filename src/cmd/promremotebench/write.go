@@ -29,12 +29,14 @@ import (
 	"io/ioutil"
 	"math"
 	"net/http"
+	"sync"
 	"time"
 
 	"promremotebench/pkg/generators"
 
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/snappy"
+	xerrors "github.com/m3db/m3/src/x/errors"
 	"github.com/pkg/errors"
 	"github.com/prometheus/common/config"
 	"github.com/prometheus/common/version"
@@ -132,7 +134,7 @@ var userAgent = fmt.Sprintf("Prometheus/%s", version.Version)
 // Client allows reading and writing from/to a remote HTTP endpoint.
 type Client struct {
 	index   int // Used to differentiate clients in metrics.
-	url     string
+	urls    []string
 	client  *http.Client
 	timeout time.Duration
 }
@@ -142,14 +144,14 @@ type recoverableError struct {
 }
 
 // NewClient creates a new Client.
-func NewClient(url string, timeout time.Duration) (*Client, error) {
+func NewClient(urls []string, timeout time.Duration) (*Client, error) {
 	httpClient, err := config.NewClientFromConfig(config.HTTPClientConfig{}, "remote_storage", false)
 	if err != nil {
 		return nil, err
 	}
 
 	return &Client{
-		url:     url,
+		urls:    urls,
 		client:  httpClient,
 		timeout: time.Duration(timeout),
 	}, nil
@@ -158,31 +160,56 @@ func NewClient(url string, timeout time.Duration) (*Client, error) {
 // Store sends a batch of samples to the HTTP endpoint, the request is the proto marshalled
 // and encoded bytes from codec.go.
 func (c *Client) Store(ctx context.Context, req []byte) error {
-	httpReq, err := http.NewRequest("POST", c.url, bytes.NewReader(req))
-	if err != nil {
-		// Errors from NewRequest are from unparseable URLs, so are not
-		// recoverable.
-		return err
+	var (
+		wg       sync.WaitGroup
+		mu       sync.Mutex
+		multiErr xerrors.MultiError
+	)
+
+	for _, url := range c.urls {
+		reqCloned := append(make([]byte, 0, len(req)), req...)
+		httpReq, err := http.NewRequest("POST", url, bytes.NewReader(reqCloned))
+		if err != nil {
+			// Errors from NewRequest are from unparseable URLs, so are not
+			// recoverable.
+			return err
+		}
+
+		httpReq.Header.Add("Content-Encoding", "snappy")
+		httpReq.Header.Set("Content-Type", "application/x-protobuf")
+		httpReq.Header.Set("User-Agent", userAgent)
+		httpReq.Header.Set("X-Prometheus-Remote-Write-Version", "0.1.0")
+		httpReq = httpReq.WithContext(ctx)
+
+		ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
+		wg.Add(1)
+		go func() {
+			if err := write(ctx, httpReq, c.client); err != nil {
+				mu.Lock()
+				multiErr = multiErr.Add(err)
+				mu.Unlock()
+			}
+
+			cancel()
+			wg.Done()
+		}()
 	}
-	httpReq.Header.Add("Content-Encoding", "snappy")
-	httpReq.Header.Set("Content-Type", "application/x-protobuf")
-	httpReq.Header.Set("User-Agent", userAgent)
-	httpReq.Header.Set("X-Prometheus-Remote-Write-Version", "0.1.0")
-	httpReq = httpReq.WithContext(ctx)
 
-	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
-	defer cancel()
+	wg.Wait()
+	return multiErr.FinalError()
+}
 
-	httpResp, err := c.client.Do(httpReq.WithContext(ctx))
+func write(
+	ctx context.Context,
+	httpReq *http.Request,
+	client *http.Client,
+) error {
+	httpResp, err := client.Do(httpReq.WithContext(ctx))
 	if err != nil {
 		// Errors from client.Do are from (for example) network errors, so are
 		// recoverable.
 		return recoverableError{err}
 	}
-	defer func() {
-		io.Copy(ioutil.Discard, httpResp.Body)
-		httpResp.Body.Close()
-	}()
 
 	if httpResp.StatusCode/100 != 2 {
 		scanner := bufio.NewScanner(io.LimitReader(httpResp.Body, maxErrMsgLen))
@@ -192,6 +219,9 @@ func (c *Client) Store(ctx context.Context, req []byte) error {
 		}
 		err = errors.Errorf("server returned HTTP status %s: %s", httpResp.Status, line)
 	}
+
+	io.Copy(ioutil.Discard, httpResp.Body)
+	httpResp.Body.Close()
 	if httpResp.StatusCode/100 == 5 {
 		return recoverableError{err}
 	}

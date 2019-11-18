@@ -45,21 +45,40 @@ func TestRemoteWrite(t *testing.T) {
 	logger := instrument.NewOptions().Logger()
 	tests := []struct {
 		name            string
+		numServers      int
 		numHosts        int
 		expectedBatches int
 		expectedSeries  int
 	}{
 		{
-			name:     "one host",
-			numHosts: 1,
+			name:       "one host",
+			numServers: 1,
+			numHosts:   1,
 		},
 		{
-			name:     "eleven hosts",
-			numHosts: 11,
+			name:       "eleven hosts",
+			numServers: 1,
+			numHosts:   11,
 		},
 		{
-			name:     "hundred hosts",
-			numHosts: 100,
+			name:       "hundred hosts",
+			numServers: 1,
+			numHosts:   100,
+		},
+		{
+			name:       "two servers one host",
+			numServers: 2,
+			numHosts:   1,
+		},
+		{
+			name:       "two servers eleven hosts",
+			numServers: 2,
+			numHosts:   11,
+		},
+		{
+			name:       "two servers hundred hosts",
+			numServers: 2,
+			numHosts:   100,
 		},
 	}
 
@@ -67,41 +86,52 @@ func TestRemoteWrite(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			numBatchesRecieved := 0
 			numTSRecieved := 0
-			var wg sync.WaitGroup
-
-			server := httptest.NewServer(
-				http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					compressed, err := ioutil.ReadAll(r.Body)
-					if err != nil {
-						http.Error(w, err.Error(), http.StatusInternalServerError)
-						return
-					}
-
-					reqBuf, err := snappy.Decode(nil, compressed)
-					if err != nil {
-						http.Error(w, err.Error(), http.StatusBadRequest)
-						return
-					}
-
-					var req prompb.WriteRequest
-					if err := proto.Unmarshal(reqBuf, &req); err != nil {
-						http.Error(w, err.Error(), http.StatusBadRequest)
-						return
-					}
-
-					numBatchesRecieved++
-					numTSRecieved += len(req.Timeseries)
-
-					wg.Done()
-				}),
+			serverUrls := make([]string, 0, test.numServers)
+			var (
+				wg sync.WaitGroup
+				mu sync.Mutex
 			)
 
-			serverURL, err := url.Parse(server.URL)
-			if err != nil {
-				t.Fatal(err)
+			for i := 0; i < test.numServers; i++ {
+				server := httptest.NewServer(
+					http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						compressed, err := ioutil.ReadAll(r.Body)
+						if err != nil {
+							http.Error(w, err.Error(), http.StatusInternalServerError)
+							return
+						}
+
+						reqBuf, err := snappy.Decode(nil, compressed)
+						if err != nil {
+							http.Error(w, err.Error(), http.StatusBadRequest)
+							return
+						}
+
+						var req prompb.WriteRequest
+						if err := proto.Unmarshal(reqBuf, &req); err != nil {
+							http.Error(w, err.Error(), http.StatusBadRequest)
+							return
+						}
+
+						mu.Lock()
+						numBatchesRecieved++
+						numTSRecieved += len(req.Timeseries)
+						mu.Unlock()
+
+						wg.Done()
+					}),
+				)
+
+				serverURL, err := url.Parse(server.URL)
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				serverUrls = append(serverUrls, serverURL.String())
 			}
 
-			remotePromClient, err := NewClient(serverURL.String(), time.Minute)
+			fmt.Println(serverUrls)
+			remotePromClient, err := NewClient(serverUrls, time.Minute)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -119,11 +149,11 @@ func TestRemoteWrite(t *testing.T) {
 			batchSize := 10
 			expectedBatches := int(math.Ceil(float64(len(vals)) / float64(batchSize)))
 
-			wg.Add(expectedBatches)
+			wg.Add(expectedBatches * test.numServers)
 			remoteWrite(vals, remotePromClient, batchSize, logger)
 			wg.Wait()
-			assert.Equal(t, expectedBatches, numBatchesRecieved)
-			assert.Equal(t, len(vals), numTSRecieved)
+			assert.Equal(t, expectedBatches*test.numServers, numBatchesRecieved)
+			assert.Equal(t, len(vals)*test.numServers, numTSRecieved)
 
 			fmt.Println("wrote series:", len(vals))
 		})

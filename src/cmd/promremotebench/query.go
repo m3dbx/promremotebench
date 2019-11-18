@@ -21,7 +21,9 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -31,12 +33,14 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/promql"
 	"github.com/prometheus/prometheus/util/stats"
 
+	xerrors "github.com/m3db/m3/src/x/errors"
 	"go.uber.org/zap"
 )
 
@@ -46,7 +50,7 @@ type queryExecutor struct {
 }
 
 type queryExecutorOptions struct {
-	URL           string
+	URLs          []string
 	Concurrency   int
 	NumWriteHosts int
 	NumSeries     int
@@ -148,12 +152,16 @@ func (q *queryExecutor) accuracyCheck(checker Checker) {
 				mustWriteString(query, "})")
 			}
 
-			res := q.executeQuery(query, true, q.AccuracyRange, q.AccuracyStep)
+			res, err := q.fanoutQuery(query, true, q.AccuracyRange, q.AccuracyStep)
 			if len(res) == 0 {
 				q.Logger.Error("invalid response for accuracy query")
+			} else if err != nil {
+				q.Logger.Error("fanout execution failed", zap.Error(err))
+			} else {
+				for _, result := range res {
+					q.validateQuery(dps, result)
+				}
 			}
-
-			q.validateQuery(dps, res)
 		}()
 	}
 }
@@ -237,12 +245,17 @@ func (q *queryExecutor) alertLoad(checker Checker) {
 				mustWriteString(query, "})")
 			}
 
-			q.executeQuery(query, false, q.LoadRange, q.LoadStep)
+			q.fanoutQuery(query, false, q.LoadRange, q.LoadStep)
 		}()
 	}
 }
 
-func (q *queryExecutor) executeQuery(query *strings.Builder, retResult bool, queryRange, queryStep time.Duration) []byte {
+func (q *queryExecutor) fanoutQuery(
+	query *strings.Builder,
+	retResult bool,
+	queryRange time.Duration,
+	queryStep time.Duration,
+) ([][]byte, error) {
 	now := time.Now()
 	values := make(url.Values)
 	values.Set("query", query.String())
@@ -250,11 +263,65 @@ func (q *queryExecutor) executeQuery(query *strings.Builder, retResult bool, que
 	values.Set("end", strconv.Itoa(int(now.Unix())))
 	values.Set("step", queryStep.String())
 
-	reqURL := fmt.Sprintf("%s?%s", q.URL, values.Encode())
+	var (
+		wg       sync.WaitGroup
+		mu       sync.Mutex
+		multiErr xerrors.MultiError
+		qs       = values.Encode()
+	)
+
+	results := make([][]byte, 0, len(q.URLs))
+	for _, url := range q.URLs {
+		wg.Add(1)
+		reqURL := fmt.Sprintf("%s?%s", url, qs)
+
+		if q.Debug {
+			q.Logger.Info("fanout query",
+				zap.String("url", reqURL),
+				zap.Any("values", values))
+		}
+
+		go func() {
+			res, err := q.executeQuery(reqURL, retResult)
+			mu.Lock()
+			multiErr = multiErr.Add(err)
+			results = append(results, res)
+			mu.Unlock()
+		}()
+	}
+
+	wg.Wait()
+
+	if err := multiErr.FinalError(); err != nil {
+		q.Logger.Error("fanout error", zap.Error(err))
+		return results, err
+	}
+
+	// NB: If less than 2 results returned, no need to compare for equality.
+	if !retResult || len(results) < 2 {
+		return results, nil
+	}
+
+	firstResult := results[0]
+	for i, res := range results[1:] {
+		if bytes.Equal(res, firstResult) {
+			continue
+		}
+
+		q.Logger.Error("mismatch in returned data", zap.Int("index", i))
+		return nil, errors.New("mismatch in returned data")
+	}
+
+	return results, nil
+}
+
+func (q *queryExecutor) executeQuery(
+	reqURL string,
+	retResult bool,
+) ([]byte, error) {
 	req, err := http.NewRequest(http.MethodGet, reqURL, nil)
 	if err != nil {
-		q.Logger.Error("create request error", zap.Error(err))
-		return nil
+		return nil, fmt.Errorf("create request error: %v", err)
 	}
 
 	if len(q.Headers) != 0 {
@@ -263,18 +330,9 @@ func (q *queryExecutor) executeQuery(query *strings.Builder, retResult bool, que
 		}
 	}
 
-	if q.Debug {
-		q.Logger.Info("execute query",
-			zap.String("url", reqURL),
-			zap.String("method", req.Method),
-			zap.Any("values", values),
-			zap.Any("headers", req.Header))
-	}
-
 	resp, err := q.client.Do(req)
 	if err != nil {
-		q.Logger.Error("failed to send request", zap.Error(err))
-		return nil
+		return nil, fmt.Errorf("failed to send request: %v", err)
 	}
 
 	defer func() {
@@ -284,7 +342,9 @@ func (q *queryExecutor) executeQuery(query *strings.Builder, retResult bool, que
 
 	if resp.StatusCode/100 != 2 {
 		q.Logger.Warn("response from query non-2XX status code",
-			zap.Int("code", resp.StatusCode))
+			zap.String("url", reqURL),
+			zap.Int("code", resp.StatusCode),
+		)
 	}
 
 	if q.Debug || retResult {
@@ -295,12 +355,11 @@ func (q *queryExecutor) executeQuery(query *strings.Builder, retResult bool, que
 
 		data, err := ioutil.ReadAll(reader)
 		if err != nil {
-			q.Logger.Error("failed to read response body",
-				zap.Error(err))
+			return nil, fmt.Errorf("failed to read response body: %v", err)
 		}
 
 		if retResult {
-			return data
+			return data, nil
 		}
 
 		q.Logger.Info("response body",
@@ -308,20 +367,23 @@ func (q *queryExecutor) executeQuery(query *strings.Builder, retResult bool, que
 			zap.ByteString("body", data))
 	}
 
-	return nil
+	return nil, nil
 }
 
+// PromQueryResult is a prom query result.
 type PromQueryResult struct {
 	Status string        `json:"status"`
 	Data   PromQueryData `json:"data"`
 }
 
+// PromQueryData is a prom query data.
 type PromQueryData struct {
 	ResultType promql.ValueType  `json:"resultType"`
 	Result     []PromQueryMatrix `json:"result"`
 	Stats      *stats.QueryStats `json:"stats,omitempty"`
 }
 
+// PromQueryMatrix is a prom query matrix.
 type PromQueryMatrix struct {
 	Values []model.SamplePair `json:"values"`
 }
