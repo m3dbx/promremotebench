@@ -287,6 +287,7 @@ func (q *queryExecutor) fanoutQuery(
 			multiErr = multiErr.Add(err)
 			results = append(results, res)
 			mu.Unlock()
+			wg.Done()
 		}()
 	}
 
@@ -358,13 +359,13 @@ func (q *queryExecutor) executeQuery(
 			return nil, fmt.Errorf("failed to read response body: %v", err)
 		}
 
-		if retResult {
-			return data, nil
-		}
-
 		q.Logger.Info("response body",
 			zap.Int("limit", q.DebugLength),
 			zap.ByteString("body", data))
+
+		if retResult {
+			return data, nil
+		}
 	}
 
 	return nil, nil
