@@ -75,8 +75,6 @@ spec:
           value: "0.0.0.0:4242"
         - name: PROMREMOTEBENCH_NUM_HOSTS
           value: "1000"
-        - name: PROMREMOTEBENCH_INTERVAL
-          value: "10"
         - name: PROMREMOTEBENCH_NEW_SERIES_PERCENTAGE
           value: "0.01"
         ports:
