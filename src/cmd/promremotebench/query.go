@@ -41,12 +41,25 @@ import (
 	"github.com/prometheus/prometheus/util/stats"
 
 	xerrors "github.com/m3db/m3/src/x/errors"
+	"github.com/uber-go/tally"
 	"go.uber.org/zap"
 )
 
 type queryExecutor struct {
 	queryExecutorOptions
 	client *http.Client
+
+	metrics map[string]queryMetrics
+	// Non-URL specific errors
+	invalidResponseError tally.Counter
+	fanoutFailedError    tally.Counter
+}
+
+type queryMetrics struct {
+	success tally.Counter
+
+	validationFailedError   tally.Counter
+	mismatchedResponseError tally.Counter
 }
 
 type queryExecutorOptions struct {
@@ -65,12 +78,33 @@ type queryExecutorOptions struct {
 	Debug         bool
 	DebugLength   int
 	Logger        *zap.Logger
+	Scope         tally.Scope
 }
 
 func newQueryExecutor(opts queryExecutorOptions) *queryExecutor {
+	scope := opts.Scope
+	metrics := make(map[string]queryMetrics)
+	errorScope := scope.SubScope("error")
+	for _, url := range opts.URLs {
+		metrics[url] = queryMetrics{
+			success: scope.Tagged(map[string]string{
+				"url": url,
+			}).Counter("success"),
+			validationFailedError: errorScope.Tagged(map[string]string{
+				"url": url,
+			}).Counter("validation-failed"),
+			mismatchedResponseError: errorScope.Tagged(map[string]string{
+				"url": url,
+			}).Counter("mismatched-response"),
+		}
+	}
+
 	return &queryExecutor{
 		queryExecutorOptions: opts,
 		client:               http.DefaultClient,
+		metrics:              metrics,
+		invalidResponseError: errorScope.Counter("invalid-response"),
+		fanoutFailedError:    errorScope.Counter("fanout-failed"),
 	}
 }
 
@@ -155,11 +189,17 @@ func (q *queryExecutor) accuracyCheck(checker Checker) {
 			res, err := q.fanoutQuery(query, true, q.AccuracyRange, q.AccuracyStep)
 			if len(res) == 0 {
 				q.Logger.Error("invalid response for accuracy query")
+				q.invalidResponseError.Inc(1)
 			} else if err != nil {
 				q.Logger.Error("fanout execution failed", zap.Error(err))
+				q.fanoutFailedError.Inc(1)
 			} else {
-				for _, result := range res {
-					q.validateQuery(dps, result)
+				for url, result := range res {
+					if isValid := q.validateQuery(dps, result, selectedHost); isValid {
+						q.metrics[url].success.Inc(1)
+					} else {
+						q.metrics[url].validationFailedError.Inc(1)
+					}
 				}
 			}
 		}()
@@ -255,7 +295,7 @@ func (q *queryExecutor) fanoutQuery(
 	retResult bool,
 	queryRange time.Duration,
 	queryStep time.Duration,
-) ([][]byte, error) {
+) (map[string][]byte, error) {
 	now := time.Now()
 	values := make(url.Values)
 	values.Set("query", query.String())
@@ -270,8 +310,9 @@ func (q *queryExecutor) fanoutQuery(
 		qs       = values.Encode()
 	)
 
-	results := make([][]byte, 0, len(q.URLs))
+	results := make(map[string][]byte, len(q.URLs))
 	for _, url := range q.URLs {
+		url := url
 		wg.Add(1)
 		reqURL := fmt.Sprintf("%s?%s", url, qs)
 
@@ -285,7 +326,7 @@ func (q *queryExecutor) fanoutQuery(
 			res, err := q.executeQuery(reqURL, retResult)
 			mu.Lock()
 			multiErr = multiErr.Add(err)
-			results = append(results, res)
+			results[url] = res
 			mu.Unlock()
 			wg.Done()
 		}()
@@ -303,13 +344,21 @@ func (q *queryExecutor) fanoutQuery(
 		return results, nil
 	}
 
-	firstResult := results[0]
-	for i, res := range results[1:] {
+	var (
+		firstResult []byte
+	)
+	for url, res := range results {
+		if firstResult == nil {
+			firstResult = res
+			continue
+		}
+
 		if bytes.Equal(res, firstResult) {
 			continue
 		}
 
-		q.Logger.Error("mismatch in returned data", zap.Int("index", i))
+		q.metrics[url].mismatchedResponseError.Inc(1)
+		q.Logger.Error("mismatch in returned data", zap.String("url", url))
 		return nil, errors.New("mismatch in returned data")
 	}
 
@@ -389,7 +438,7 @@ type PromQueryMatrix struct {
 	Values []model.SamplePair `json:"values"`
 }
 
-func (q *queryExecutor) validateQuery(dps Datapoints, data []byte) bool {
+func (q *queryExecutor) validateQuery(dps Datapoints, data []byte, hostname string) bool {
 	res := PromQueryResult{}
 	err := json.Unmarshal(data, &res)
 	if err != nil {
@@ -427,7 +476,11 @@ func (q *queryExecutor) validateQuery(dps Datapoints, data []byte) bool {
 	}
 
 	if matches == 0 {
-		q.Logger.Error("no values matched at all.")
+		q.Logger.Error("no values matched at all.",
+			zap.String("hostname", hostname),
+			zap.Int("num_written_dps", len(dps)),
+			zap.Int("num_query_dps", len(matrix[0].Values)))
+
 		return false
 	}
 

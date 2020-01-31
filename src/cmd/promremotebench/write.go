@@ -41,6 +41,7 @@ import (
 	"github.com/prometheus/common/config"
 	"github.com/prometheus/common/version"
 	"github.com/prometheus/prometheus/prompb"
+	"github.com/uber-go/tally"
 	"go.uber.org/zap"
 )
 
@@ -137,6 +138,14 @@ type Client struct {
 	urls    []string
 	client  *http.Client
 	timeout time.Duration
+
+	// Map of URL to client metrics
+	metrics map[string]clientMetrics
+}
+
+type clientMetrics struct {
+	success tally.Counter
+	errors  tally.Counter
 }
 
 type recoverableError struct {
@@ -144,16 +153,32 @@ type recoverableError struct {
 }
 
 // NewClient creates a new Client.
-func NewClient(urls []string, timeout time.Duration) (*Client, error) {
+func NewClient(
+	urls []string,
+	timeout time.Duration,
+	scope tally.Scope,
+) (*Client, error) {
 	httpClient, err := config.NewClientFromConfig(config.HTTPClientConfig{}, "remote_storage", false)
 	if err != nil {
 		return nil, err
+	}
+
+	metrics := make(map[string]clientMetrics)
+	for _, url := range urls {
+		scope := scope.Tagged(map[string]string{
+			"url": url,
+		})
+		metrics[url] = clientMetrics{
+			success: scope.Counter("success"),
+			errors:  scope.Counter("errors"),
+		}
 	}
 
 	return &Client{
 		urls:    urls,
 		client:  httpClient,
 		timeout: time.Duration(timeout),
+		metrics: metrics,
 	}, nil
 }
 
@@ -167,6 +192,7 @@ func (c *Client) Store(ctx context.Context, req []byte) error {
 	)
 
 	for _, url := range c.urls {
+		url := url
 		reqCloned := append(make([]byte, 0, len(req)), req...)
 		httpReq, err := http.NewRequest("POST", url, bytes.NewReader(reqCloned))
 		if err != nil {
@@ -184,10 +210,14 @@ func (c *Client) Store(ctx context.Context, req []byte) error {
 		ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
 		wg.Add(1)
 		go func() {
+			metrics := c.metrics[url]
 			if err := write(ctx, httpReq, c.client); err != nil {
 				mu.Lock()
 				multiErr = multiErr.Add(err)
 				mu.Unlock()
+				metrics.errors.Inc(1)
+			} else {
+				metrics.success.Inc(1)
 			}
 
 			cancel()
@@ -196,6 +226,7 @@ func (c *Client) Store(ctx context.Context, req []byte) error {
 	}
 
 	wg.Wait()
+
 	return multiErr.FinalError()
 }
 

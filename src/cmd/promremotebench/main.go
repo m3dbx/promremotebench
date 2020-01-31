@@ -24,6 +24,7 @@ import (
 	"encoding/json"
 	"flag"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"strconv"
 	"strings"
@@ -31,6 +32,7 @@ import (
 
 	"promremotebench/pkg/generators"
 
+	xconfig "github.com/m3db/m3/src/x/config"
 	"github.com/m3db/m3/src/x/instrument"
 	xos "github.com/m3db/m3/src/x/os"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -89,6 +91,9 @@ func main() {
 		write = flag.Bool("write", true, "enable write load benchmarking")
 		query = flag.Bool("query", false, "enable query load benchmarking")
 
+		// config filename
+		configFile = flag.String("config", "", "Location of the config file")
+
 		// write options
 		scrapeServer          = flag.String("scrape-server", "", "Listen address for scrape HTTP server (instead of remote write)")
 		numHosts              = flag.Int("hosts", 100, "Number of hosts to mimic scrapes from")
@@ -129,6 +134,28 @@ func main() {
 	flag.Var(&queryTargetURLs, "query-target", "Target query endpoint(s) (for exercising by proxy remote read)")
 	flag.Parse()
 
+	var (
+		logger = instrument.NewOptions().Logger()
+	)
+
+	if len(*configFile) == 0 {
+		logger.Fatal("must supply a config file",
+			zap.String("configFile", *configFile))
+	}
+
+	var cfg Configuration
+	if err := xconfig.LoadFile(&cfg, *configFile, xconfig.Options{}); err != nil {
+		logger.Fatal("unable to load config file",
+			zap.String("configFile", *configFile),
+			zap.Error(err))
+	}
+
+	scope, _, err := cfg.Metrics.NewRootScope()
+	if err != nil {
+		logger.Fatal("unable to create root metrics scope",
+			zap.Error(err))
+	}
+
 	if len(writeTargetURLs) == 0 {
 		queryTargetURLs = targetUrls{"http://localhost:7201/receive"}
 	}
@@ -136,11 +163,6 @@ func main() {
 	if len(queryTargetURLs) == 0 {
 		queryTargetURLs = targetUrls{"http://localhost:7201/api/v1/query_range"}
 	}
-
-	var (
-		logger = instrument.NewOptions().Logger()
-		err    error
-	)
 
 	// Parse env var overrides.
 	if v := os.Getenv(envWrite); v != "" {
@@ -320,7 +342,7 @@ func main() {
 	now := time.Now()
 	hostGen := generators.NewHostsSimulator(*numHosts, now,
 		generators.HostsSimulatorOptions{Labels: parsedLabels})
-	client, err := NewClient(writeTargetURLs, time.Minute)
+	client, err := NewClient(writeTargetURLs, time.Minute, scope.SubScope("writes"))
 	if err != nil {
 		logger.Fatal("error creating remote client",
 			zap.Error(err))
@@ -385,10 +407,17 @@ func main() {
 				Debug:         *queryDebug,
 				DebugLength:   *queryDebugLength,
 				Logger:        logger,
+				Scope:         scope.SubScope("queries"),
 			})
 			q.Run(checker)
 		}()
 	}
+	go func() {
+		err := http.ListenAndServe("localhost:6060", nil)
+		if err != nil {
+			logger.Fatal("debug profile server error", zap.Error(err))
+		}
+	}()
 
 	xos.WaitForInterrupt(logger, xos.InterruptOptions{})
 }
