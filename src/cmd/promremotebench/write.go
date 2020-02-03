@@ -163,7 +163,7 @@ func NewClient(
 		return nil, err
 	}
 
-	metrics := make(map[string]clientMetrics)
+	metrics := make(map[string]clientMetrics, len(urls))
 	for _, url := range urls {
 		scope := scope.Tagged(map[string]string{
 			"url": url,
@@ -209,8 +209,8 @@ func (c *Client) Store(ctx context.Context, req []byte) error {
 
 		ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
 		wg.Add(1)
+		metrics := c.metrics[url]
 		go func() {
-			metrics := c.metrics[url]
 			if err := write(ctx, httpReq, c.client); err != nil {
 				mu.Lock()
 				multiErr = multiErr.Add(err)

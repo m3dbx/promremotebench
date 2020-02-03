@@ -439,17 +439,18 @@ type PromQueryMatrix struct {
 }
 
 func (q *queryExecutor) validateQuery(dps Datapoints, data []byte, hostname string) bool {
+	logger := q.Logger.With(zap.String("hostname", hostname))
 	res := PromQueryResult{}
 	err := json.Unmarshal(data, &res)
 	if err != nil {
-		q.Logger.Error("unable to unmarshal PromQL query result",
+		logger.Error("unable to unmarshal PromQL query result",
 			zap.Error(err))
 		return false
 	}
 
 	matrix := res.Data.Result
 	if len(matrix) != 1 {
-		q.Logger.Error("expecting one result series, but got "+strconv.Itoa(len(matrix)),
+		logger.Error("expecting one result series, but got "+strconv.Itoa(len(matrix)),
 			zap.Any("results", matrix))
 		return false
 	}
@@ -457,7 +458,7 @@ func (q *queryExecutor) validateQuery(dps Datapoints, data []byte, hostname stri
 	i, matches := 0, 0
 
 	if len(matrix[0].Values) == 0 {
-		q.Logger.Warn("No results returned from query. There may be a slight delay in ingestion")
+		logger.Warn("No results returned from query. There may be a slight delay in ingestion")
 		return false
 	}
 
@@ -476,7 +477,7 @@ func (q *queryExecutor) validateQuery(dps Datapoints, data []byte, hostname stri
 	}
 
 	if matches == 0 {
-		q.Logger.Error("no values matched at all.",
+		logger.Error("no values matched at all.",
 			zap.String("hostname", hostname),
 			zap.Int("num_written_dps", len(dps)),
 			zap.Int("num_query_dps", len(matrix[0].Values)))
