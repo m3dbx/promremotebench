@@ -412,12 +412,14 @@ func main() {
 			q.Run(checker)
 		}()
 	}
-	go func() {
-		err := http.ListenAndServe("localhost:6060", nil)
-		if err != nil {
-			logger.Fatal("debug profile server error", zap.Error(err))
-		}
-	}()
+	if cfg.DebugListenAddress != "" {
+		go func() {
+			err := http.ListenAndServe(cfg.DebugListenAddress, nil)
+			if err != nil {
+				logger.Fatal("debug profile server error", zap.Error(err))
+			}
+		}()
+	}
 
 	xos.WaitForInterrupt(logger, xos.InterruptOptions{})
 }
