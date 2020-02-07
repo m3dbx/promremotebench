@@ -17,5 +17,7 @@ FROM alpine:latest
 LABEL maintainer="The M3DB Authors <m3db@googlegroups.com>"
 
 COPY --from=builder /src/promremotebench /bin/
+COPY --from=builder /src/config/promremotebench.yml /etc/promremotebench/promremotebench.yml 
 
 ENTRYPOINT [ "/bin/promremotebench" ]
+CMD [ "-config", "/etc/promremotebench/promremotebench.yml" ]
