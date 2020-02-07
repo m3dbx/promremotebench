@@ -478,7 +478,6 @@ func (q *queryExecutor) validateQuery(dps Datapoints, data []byte, hostname stri
 
 	if matches == 0 {
 		logger.Error("no values matched at all.",
-			zap.String("hostname", hostname),
 			zap.Int("num_written_dps", len(dps)),
 			zap.Int("num_query_dps", len(matrix[0].Values)))
 
