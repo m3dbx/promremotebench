@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/uber-go/tally"
 	"go.uber.org/zap/zaptest"
 )
 
@@ -82,10 +83,13 @@ const testResult2 = `
 }`
 
 func TestValidateQuery(t *testing.T) {
-	query := newQueryExecutor(queryExecutorOptions{Logger: zaptest.NewLogger(t)})
+	query := newQueryExecutor(queryExecutorOptions{
+		Scope:  tally.NoopScope,
+		Logger: zaptest.NewLogger(t),
+	})
 	data := []byte(testResult)
 	require.True(t, query.validateQuery(
-		[]Datapoint{
+		Datapoints{
 			Datapoint{
 				Timestamp: promTimestampToTime(1435781430781),
 				Value:     5,
@@ -100,11 +104,12 @@ func TestValidateQuery(t *testing.T) {
 			},
 		},
 		data,
+		"foo",
 	))
 
 	data = []byte(testResult2)
 	require.True(t, query.validateQuery(
-		[]Datapoint{
+		Datapoints{
 			Datapoint{
 				Timestamp: time.Now(),
 				Value:     2297275298167.599,
@@ -135,10 +140,11 @@ func TestValidateQuery(t *testing.T) {
 			},
 		},
 		data,
+		"foo",
 	))
 
 	require.False(t, query.validateQuery(
-		[]Datapoint{
+		Datapoints{
 			Datapoint{
 				Timestamp: time.Now(),
 				Value:     1,
@@ -149,5 +155,6 @@ func TestValidateQuery(t *testing.T) {
 			},
 		},
 		data,
+		"foo",
 	))
 }

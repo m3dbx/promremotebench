@@ -52,6 +52,7 @@ func writeLoop(
 	newSeriesPercent float64,
 	remotePromClient *Client,
 	remotePromBatchSize int,
+	headers map[string]string,
 	logger *zap.Logger,
 	checker Checker,
 ) {
@@ -78,8 +79,8 @@ func writeLoop(
 				checker.Store(series)
 				// @martinm - better to concatenate the results of series or just loop through the keys?
 				for _, s := range series {
-					remoteWrite(s, remotePromClient,
-						remotePromBatchSize, logger)
+					remoteWrite(s, remotePromClient, remotePromBatchSize,
+						headers, logger)
 				}
 				workers <- token
 			}()
@@ -93,19 +94,23 @@ func remoteWrite(
 	series []prompb.TimeSeries,
 	remotePromClient *Client,
 	remotePromBatchSize int,
+	headers map[string]string,
 	logger *zap.Logger,
 ) {
 	i := 0
 	for ; i < len(series)-remotePromBatchSize; i += remotePromBatchSize {
-		remoteWriteBatch(series[i:i+remotePromBatchSize], remotePromClient, logger)
+		remoteWriteBatch(series[i:i+remotePromBatchSize], remotePromClient,
+			headers, logger)
 	}
 
-	remoteWriteBatch(series[i:], remotePromClient, logger)
+	remoteWriteBatch(series[i:], remotePromClient,
+		headers, logger)
 }
 
 func remoteWriteBatch(
 	series []prompb.TimeSeries,
 	remotePromClient *Client,
+	headers map[string]string,
 	logger *zap.Logger,
 ) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -121,7 +126,7 @@ func remoteWriteBatch(
 	}
 
 	encoded := snappy.Encode(nil, data)
-	err = remotePromClient.Store(ctx, encoded)
+	err = remotePromClient.Store(ctx, headers, encoded)
 	if err != nil {
 		logger.Error("error writing to remote prom store", zap.Error(err))
 		return
@@ -184,7 +189,7 @@ func NewClient(
 
 // Store sends a batch of samples to the HTTP endpoint, the request is the proto marshalled
 // and encoded bytes from codec.go.
-func (c *Client) Store(ctx context.Context, req []byte) error {
+func (c *Client) Store(ctx context.Context, headers map[string]string, req []byte) error {
 	var (
 		wg       sync.WaitGroup
 		mu       sync.Mutex
@@ -205,6 +210,11 @@ func (c *Client) Store(ctx context.Context, req []byte) error {
 		httpReq.Header.Set("Content-Type", "application/x-protobuf")
 		httpReq.Header.Set("User-Agent", userAgent)
 		httpReq.Header.Set("X-Prometheus-Remote-Write-Version", "0.1.0")
+		if headers != nil {
+			for k, v := range headers {
+				httpReq.Header.Set(k, v)
+			}
+		}
 		httpReq = httpReq.WithContext(ctx)
 
 		ctx, cancel := context.WithTimeout(context.Background(), c.timeout)

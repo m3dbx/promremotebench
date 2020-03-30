@@ -23,6 +23,7 @@ package main
 import (
 	"encoding/json"
 	"flag"
+	"fmt"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
@@ -36,6 +37,7 @@ import (
 	"github.com/m3db/m3/src/x/instrument"
 	xos "github.com/m3db/m3/src/x/os"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	tallyprom "github.com/uber-go/tally/prometheus"
 	"go.uber.org/zap"
 )
 
@@ -43,6 +45,7 @@ const (
 	envWrite              = "PROMREMOTEBENCH_WRITE"
 	envQuery              = "PROMREMOTEBENCH_QUERY"
 	envTarget             = "PROMREMOTEBENCH_TARGET"
+	envTargetHeadersJSON  = "PROMREMOTEBENCH_TARGET_HEADERS_JSON"
 	envScrapeServer       = "PROMREMOTEBENCH_SCRAPE_SERVER"
 	envQueryTarget        = "PROMREMOTEBENCH_QUERY_TARGET"
 	envInterval           = "PROMREMOTEBENCH_INTERVAL"
@@ -73,6 +76,21 @@ const (
 	maxNumScrapesActive = 4
 )
 
+var (
+	defaultMetricsSanitization = instrument.PrometheusMetricSanitization
+	defaultMetricsExtended     = instrument.DetailedExtendedMetrics
+	defaultConfiguration       = Configuration{
+		Metrics: instrument.MetricsConfiguration{
+			Sanitization: &defaultMetricsSanitization,
+			SamplingRate: 1,
+			PrometheusReporter: &tallyprom.Configuration{
+				HandlerPath: "/metrics",
+			},
+			ExtendedMetrics: &defaultMetricsExtended,
+		},
+	}
+)
+
 type targetUrls []string
 
 func (u *targetUrls) String() string {
@@ -83,6 +101,35 @@ func (u *targetUrls) String() string {
 // case with multiple flags.
 func (u *targetUrls) Set(value string) error {
 	*u = append(*u, value)
+	return nil
+}
+
+type headers []header
+
+type header struct {
+	name  string
+	value string
+}
+
+func (h *headers) String() string {
+	var r [][]string
+	for _, v := range []header(*h) {
+		r = append(r, []string{v.name, v.value})
+	}
+	return fmt.Sprintf("%v", r)
+}
+
+func (h *headers) Set(value string) error {
+	firstSplit := strings.Index(value, ":")
+	if firstSplit == -1 {
+		return fmt.Errorf("header missing separating colon: '%v'", value)
+	}
+
+	*h = append(*h, header{
+		name:  strings.TrimSpace(value[:firstSplit]),
+		value: strings.TrimSpace(value[firstSplit+1:]),
+	})
+
 	return nil
 }
 
@@ -129,6 +176,9 @@ func main() {
 	var writeTargetURLs targetUrls
 	flag.Var(&writeTargetURLs, "target", "Target remote write endpoint(s) (for remote write)")
 
+	var writeTargetHeaders headers
+	flag.Var(&writeTargetHeaders, "target-header", "Header to set with remote write request, can specify many, e.g. 'User-Agent: Foo'")
+
 	// Can have multiple query-targets.
 	var queryTargetURLs targetUrls
 	flag.Var(&queryTargetURLs, "query-target", "Target query endpoint(s) (for exercising by proxy remote read)")
@@ -138,16 +188,13 @@ func main() {
 		logger = instrument.NewOptions().Logger()
 	)
 
-	if len(*configFile) == 0 {
-		logger.Fatal("must supply a config file",
-			zap.String("configFile", *configFile))
-	}
-
-	var cfg Configuration
-	if err := xconfig.LoadFile(&cfg, *configFile, xconfig.Options{}); err != nil {
-		logger.Fatal("unable to load config file",
-			zap.String("configFile", *configFile),
-			zap.Error(err))
+	cfg := defaultConfiguration
+	if len(*configFile) != 0 {
+		if err := xconfig.LoadFile(&cfg, *configFile, xconfig.Options{}); err != nil {
+			logger.Fatal("unable to load config file",
+				zap.String("configFile", *configFile),
+				zap.Error(err))
+		}
 	}
 
 	scope, _, err := cfg.Metrics.NewRootScope()
@@ -181,6 +228,17 @@ func main() {
 	}
 	if v := os.Getenv(envTarget); v != "" {
 		writeTargetURLs = strings.Split(v, ",")
+	}
+	if v := os.Getenv(envTargetHeadersJSON); v != "" {
+		values := make(map[string]string)
+		err := json.Unmarshal([]byte(v), &values)
+		if err != nil {
+			logger.Fatal("could not parse env var",
+				zap.String("var", envTargetHeadersJSON), zap.Error(err))
+		}
+		for k, v := range values {
+			writeTargetHeaders = append(writeTargetHeaders, header{name: k, value: v})
+		}
 	}
 	if v := os.Getenv(envScrapeServer); v != "" {
 		*scrapeServer = v
@@ -324,6 +382,11 @@ func main() {
 	}
 
 	// Parse opts further.
+	writeTargetHeadersMap := make(map[string]string)
+	for _, h := range writeTargetHeaders {
+		writeTargetHeadersMap[h.name] = h.value
+	}
+
 	parsedLabels := parseLabels(*labels, *labelsFromEnv, logger)
 	parsedQueryLabels := parseLabels(*queryLabels, *queryLabelsFromEnv, logger)
 
@@ -371,7 +434,8 @@ func main() {
 				progressBy := scrapeDuration / *scrapeSpreadBy
 				writeLoop(hostGen, time.Duration(scrapeDuration),
 					time.Duration(progressBy), *newSeriesPercent,
-					client, *remoteBatchSize, logger, checker)
+					client, *remoteBatchSize, writeTargetHeadersMap,
+					logger, checker)
 			} else {
 				logger.Info("starting scrape server", zap.String("address", *scrapeServer))
 				gatherer := newGatherer(hostGen, time.Duration(scrapeDuration),
