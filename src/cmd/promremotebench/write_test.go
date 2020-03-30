@@ -39,6 +39,7 @@ import (
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/uber-go/tally"
 )
 
 func TestRemoteWrite(t *testing.T) {
@@ -131,7 +132,7 @@ func TestRemoteWrite(t *testing.T) {
 			}
 
 			fmt.Println(serverUrls)
-			remotePromClient, err := NewClient(serverUrls, time.Minute)
+			remotePromClient, err := NewClient(serverUrls, time.Minute, tally.NoopScope)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -150,7 +151,7 @@ func TestRemoteWrite(t *testing.T) {
 			expectedBatches := int(math.Ceil(float64(len(vals)) / float64(batchSize)))
 
 			wg.Add(expectedBatches * test.numServers)
-			remoteWrite(vals, remotePromClient, batchSize, logger)
+			remoteWrite(vals, remotePromClient, batchSize, nil, logger)
 			wg.Wait()
 			assert.Equal(t, expectedBatches*test.numServers, numBatchesRecieved)
 			assert.Equal(t, len(vals)*test.numServers, numTSRecieved)
