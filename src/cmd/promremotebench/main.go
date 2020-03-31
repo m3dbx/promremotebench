@@ -204,7 +204,7 @@ func main() {
 	}
 
 	if len(writeTargetURLs) == 0 {
-		queryTargetURLs = targetUrls{"http://localhost:7201/receive"}
+		writeTargetURLs = targetUrls{"http://localhost:7201/receive"}
 	}
 
 	if len(queryTargetURLs) == 0 {
