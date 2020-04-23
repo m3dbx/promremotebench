@@ -62,8 +62,13 @@ type queryMetrics struct {
 	mismatchedResponseError tally.Counter
 }
 
+type queryTarget struct {
+	URL     string
+	Headers map[string]string
+}
+
 type queryExecutorOptions struct {
-	URLs          []string
+	Targets       []queryTarget
 	Concurrency   int
 	NumWriteHosts int
 	NumSeries     int
@@ -73,7 +78,6 @@ type queryExecutorOptions struct {
 	AccuracyRange time.Duration
 	Aggregation   string
 	Labels        map[string]string
-	Headers       map[string]string
 	Sleep         time.Duration
 	Debug         bool
 	DebugLength   int
@@ -85,7 +89,8 @@ func newQueryExecutor(opts queryExecutorOptions) *queryExecutor {
 	scope := opts.Scope
 	metrics := make(map[string]queryMetrics)
 	errorScope := scope.SubScope("error")
-	for _, url := range opts.URLs {
+	for _, target := range opts.Targets {
+		url := target.URL
 		metrics[url] = queryMetrics{
 			success: scope.Tagged(map[string]string{
 				"url": url,
@@ -310,9 +315,10 @@ func (q *queryExecutor) fanoutQuery(
 		qs       = values.Encode()
 	)
 
-	results := make(map[string][]byte, len(q.URLs))
-	for _, url := range q.URLs {
-		url := url
+	results := make(map[string][]byte, len(q.Targets))
+	for _, target := range q.Targets {
+		url := target.URL
+		headers := target.Headers
 		wg.Add(1)
 		reqURL := fmt.Sprintf("%s?%s", url, qs)
 
@@ -323,7 +329,7 @@ func (q *queryExecutor) fanoutQuery(
 		}
 
 		go func() {
-			res, err := q.executeQuery(reqURL, retResult)
+			res, err := q.executeQuery(reqURL, headers, retResult)
 			mu.Lock()
 			multiErr = multiErr.Add(err)
 			results[url] = res
@@ -367,6 +373,7 @@ func (q *queryExecutor) fanoutQuery(
 
 func (q *queryExecutor) executeQuery(
 	reqURL string,
+	headers map[string]string,
 	retResult bool,
 ) ([]byte, error) {
 	req, err := http.NewRequest(http.MethodGet, reqURL, nil)
@@ -374,10 +381,8 @@ func (q *queryExecutor) executeQuery(
 		return nil, fmt.Errorf("create request error: %v", err)
 	}
 
-	if len(q.Headers) != 0 {
-		for k, v := range q.Headers {
-			req.Header.Set(k, v)
-		}
+	for k, v := range headers {
+		req.Header.Set(k, v)
 	}
 
 	resp, err := q.client.Do(req)
@@ -465,7 +470,6 @@ func (q *queryExecutor) validateQuery(dps Datapoints, data []byte, hostname stri
 	for _, value := range matrix[0].Values {
 		for i < len(dps) {
 			if float64(value.Value) == dps[i].Value {
-				i++
 				matches++
 				break
 			}
