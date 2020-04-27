@@ -97,10 +97,9 @@ func (u *targetUrls) String() string {
 	return "a slice of target urls"
 }
 
-// Set satisfies flag.Value; this will append seen values to the slice for the
-// case with multiple flags.
+// Set satisfies flag.Value; this will expand a comma separated list of values.
 func (u *targetUrls) Set(value string) error {
-	*u = append(*u, value)
+	*u = strings.Split(value, ",")
 	return nil
 }
 
@@ -166,7 +165,7 @@ func main() {
 		queryAggregation   = flag.String("query-aggregation", "sum", "Query aggregation")
 		queryLabels        = flag.String("query-labels", "{}", "Labels in JSON format to use in all queries")
 		queryLabelsFromEnv = flag.String("query-labels-env", "{}", "Labels in JSON format, with the string values as environment variable names, to use in all queries")
-		queryHeaders       = flag.String("query-headers", "{}", "Query headers in JSON format to send with each request")
+		queryHeaders       = flag.String("query-headers", "{}", "Query headers in JSON format to send with each request (can be a JSON array for multiple query target URLs)")
 		querySleep         = flag.Duration("query-sleep", time.Second, "Query time to sleep between finishing one query and executing the next")
 		queryDebug         = flag.Bool("query-debug", false, "Query debug flag to print out the first few characters of a query response")
 		queryDebugLength   = flag.Int("query-debug-length", 128, "Query debug character length to print, use zero to print entire response")
@@ -397,8 +396,37 @@ func main() {
 	}
 
 	var parsedQueryHeaders map[string]string
-	if err := json.Unmarshal([]byte(*queryHeaders), &parsedQueryHeaders); err != nil {
+	var parsedQueryHeadersPerTarget []map[string]string
+	// Try parsing as JSON array...
+	err = json.Unmarshal([]byte(*queryHeaders), &parsedQueryHeadersPerTarget)
+	if _, ok := err.(*json.UnmarshalTypeError); ok {
+		// ... if that failed, try parsing as a single JSON object.
+		parsedQueryHeadersPerTarget = nil
+		err = json.Unmarshal([]byte(*queryHeaders), &parsedQueryHeaders)
+	}
+	if err != nil {
 		logger.Fatal("could not parse fixed query headers", zap.Error(err))
+	}
+
+	queryTargets := make([]queryTarget, len(queryTargetURLs))
+
+	for i, url := range queryTargetURLs {
+		headersSource := make(map[string]string)
+		if parsedQueryHeadersPerTarget == nil {
+			// Use the same headers for each target.
+			headersSource = parsedQueryHeaders
+		} else if i < len(parsedQueryHeadersPerTarget) {
+			// Use the target specific headers from the array.
+			headersSource = parsedQueryHeadersPerTarget[i]
+		}
+		headers := make(map[string]string)
+		for k, v := range headersSource {
+			headers[k] = v
+		}
+		queryTargets[i] = queryTarget{
+			URL:     url,
+			Headers: headers,
+		}
 	}
 
 	// Create structures.
@@ -456,7 +484,7 @@ func main() {
 		go func() {
 			logger.Info("starting query load")
 			q := newQueryExecutor(queryExecutorOptions{
-				URLs:          queryTargetURLs,
+				Targets:       queryTargets,
 				Concurrency:   *queryConcurrency,
 				NumWriteHosts: *numHosts,
 				NumSeries:     *queryNumSeries,
@@ -466,7 +494,6 @@ func main() {
 				AccuracyRange: *queryAccuracyRange,
 				Aggregation:   *queryAggregation,
 				Labels:        parsedQueryLabels,
-				Headers:       parsedQueryHeaders,
 				Sleep:         *querySleep,
 				Debug:         *queryDebug,
 				DebugLength:   *queryDebugLength,
