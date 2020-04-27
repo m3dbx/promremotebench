@@ -69,6 +69,7 @@ type queryExecutorOptions struct {
 	NumSeries     int
 	LoadStep      time.Duration
 	LoadRange     time.Duration
+	SkipAccuracy  bool
 	AccuracyStep  time.Duration
 	AccuracyRange time.Duration
 	Aggregation   string
@@ -115,7 +116,11 @@ func (q *queryExecutor) Run(checker Checker) {
 		go q.alertLoad(checker)
 	}
 
-	go q.accuracyCheck(checker)
+	if q.SkipAccuracy {
+		q.Logger.Info("skipping query accuracy checks")
+	} else {
+		go q.accuracyCheck(checker)
+	}
 }
 
 // accuracyCheck checks the accuracy of data for one
@@ -195,7 +200,7 @@ func (q *queryExecutor) accuracyCheck(checker Checker) {
 				q.fanoutFailedError.Inc(1)
 			} else {
 				for url, result := range res {
-					if isValid := q.validateQuery(dps, result, selectedHost); isValid {
+					if q.validateQuery(dps, result, selectedHost) {
 						q.metrics[url].success.Inc(1)
 					} else {
 						q.metrics[url].validationFailedError.Inc(1)

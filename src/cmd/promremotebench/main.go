@@ -61,6 +61,7 @@ const (
 	envQueryNumSeries     = "PROMREMOTEBENCH_QUERY_NUM_SERIES"
 	envQueryLoadStep      = "PROMREMOTEBENCH_QUERY_LOAD_STEP"
 	envQueryLoadRange     = "PROMREMOTEBENCH_QUERY_LOAD_RANGE"
+	envQuerySkipAccuracy  = "PROMREMOTEBENCH_QUERY_SKIP_ACCURACY"
 	envQueryAccuracyStep  = "PROMREMOTEBENCH_QUERY_ACCURACY_STEP"
 	envQueryAccuracyRange = "PROMREMOTEBENCH_QUERY_ACCURACY_RANGE"
 	envQueryAggregation   = "PROMREMOTEBENCH_QUERY_AGGREGATION"
@@ -161,8 +162,9 @@ func main() {
 		queryNumSeries     = flag.Int("query-num-series", 500, "Query number of series (will round up to nearest 100), cannot exceed the number of 101*write_num_hosts (since each host sends 101 metrics)")
 		queryLoadStep      = flag.Duration("query-load-step", time.Minute, "Query step size")
 		queryLoadRange     = flag.Duration("query-load-range", 12*time.Hour, "Query time range size (from now backwards)")
-		queryAccuracyStep  = flag.Duration("query-accuracy-step", 10*time.Second, "Query step size")
-		queryAccuracyRange = flag.Duration("query-accuracy-range", 35*time.Second, "Query time range size (from now backwards)")
+		querySkipAccuracy  = flag.Bool("query-skip-accuracy-checks", false, "Skip accuracy checks in query load")
+		queryAccuracyStep  = flag.Duration("query-accuracy-step", 10*time.Second, "Accuracy query step size")
+		queryAccuracyRange = flag.Duration("query-accuracy-range", 35*time.Second, "Accuracy query time range size (from now backwards)")
 		queryAggregation   = flag.String("query-aggregation", "sum", "Query aggregation")
 		queryLabels        = flag.String("query-labels", "{}", "Labels in JSON format to use in all queries")
 		queryLabelsFromEnv = flag.String("query-labels-env", "{}", "Labels in JSON format, with the string values as environment variable names, to use in all queries")
@@ -310,6 +312,13 @@ func main() {
 		if err != nil {
 			logger.Fatal("could not parse env var",
 				zap.String("var", envQueryLoadRange), zap.Error(err))
+		}
+	}
+	if v := os.Getenv(envQuerySkipAccuracy); v != "" {
+		*querySkipAccuracy, err = strconv.ParseBool(v)
+		if err != nil {
+			logger.Fatal("could not parse env var",
+				zap.String("var", envQuerySkipAccuracy), zap.Error(err))
 		}
 	}
 	if v := os.Getenv(envQueryAccuracyStep); v != "" {
@@ -462,6 +471,7 @@ func main() {
 				NumSeries:     *queryNumSeries,
 				LoadStep:      *queryLoadStep,
 				LoadRange:     *queryLoadRange,
+				SkipAccuracy:  *querySkipAccuracy,
 				AccuracyStep:  *queryAccuracyStep,
 				AccuracyRange: *queryAccuracyRange,
 				Aggregation:   *queryAggregation,
