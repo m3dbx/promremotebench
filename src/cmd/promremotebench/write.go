@@ -139,7 +139,6 @@ var userAgent = fmt.Sprintf("Prometheus/%s", version.Version)
 
 // Client allows reading and writing from/to a remote HTTP endpoint.
 type Client struct {
-	index   int // Used to differentiate clients in metrics.
 	urls    []string
 	client  *http.Client
 	timeout time.Duration
@@ -210,10 +209,8 @@ func (c *Client) Store(ctx context.Context, headers map[string]string, req []byt
 		httpReq.Header.Set("Content-Type", "application/x-protobuf")
 		httpReq.Header.Set("User-Agent", userAgent)
 		httpReq.Header.Set("X-Prometheus-Remote-Write-Version", "0.1.0")
-		if headers != nil {
-			for k, v := range headers {
-				httpReq.Header.Set(k, v)
-			}
+		for k, v := range headers {
+			httpReq.Header.Set(k, v)
 		}
 		httpReq = httpReq.WithContext(ctx)
 
