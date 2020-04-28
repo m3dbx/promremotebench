@@ -311,7 +311,7 @@ func (q *queryExecutor) fanoutQuery(
 	values.Set("query", query.String())
 	values.Set("start", strconv.Itoa(int(now.Add(-1*queryRange).Unix())))
 	values.Set("end", strconv.Itoa(int(now.Unix())))
-	values.Set("step", queryStep.String())
+	values.Set("step", strconv.FormatFloat(queryStep.Seconds(), 'f', -1, 64))
 
 	var (
 		wg       sync.WaitGroup
