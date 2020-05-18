@@ -79,16 +79,17 @@ func (g *gatherer) Gather() ([]*dto.MetricFamily, error) {
 			var family *dto.MetricFamily
 
 			for j := range series[i].Labels {
-				name := series[i].Labels[j].Name
-				if name == labels.MetricName {
+				labelName := series[i].Labels[j].Name
+				if labelName == labels.MetricName {
+					metricName := series[i].Labels[j].Value
 					var ok bool
-					family, ok = families[name]
+					family, ok = families[metricName]
 					if !ok {
 						family = &dto.MetricFamily{
-							Name: &name,
+							Name: &metricName,
 							Type: &gauge,
 						}
-						families[name] = family
+						families[metricName] = family
 					}
 					break
 				}
