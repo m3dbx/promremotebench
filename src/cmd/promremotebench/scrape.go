@@ -99,18 +99,21 @@ func (g *gatherer) Gather() ([]*dto.MetricFamily, error) {
 				g.logger.Fatal("no metric family found for metric")
 			}
 
-			labels := make([]*dto.LabelPair, 0, len(series[i].Labels))
+			labelPairs := make([]*dto.LabelPair, 0, len(series[i].Labels))
 			for j := range series[i].Labels {
-				label := &dto.LabelPair{
-					Name:  &series[i].Labels[j].Name,
-					Value: &series[i].Labels[j].Value,
+				label := series[i].Labels[j]
+				if label.Name != labels.MetricName {
+					labelPair := &dto.LabelPair{
+						Name:  &label.Name,
+						Value: &label.Value,
+					}
+					labelPairs = append(labelPairs, labelPair)
 				}
-				labels = append(labels, label)
 			}
 
 			for _, sample := range series[i].Samples {
 				metric := &dto.Metric{
-					Label: labels,
+					Label: labelPairs,
 					Gauge: &dto.Gauge{
 						Value: &sample.Value,
 					},
