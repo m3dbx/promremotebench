@@ -102,13 +102,14 @@ func (g *gatherer) Gather() ([]*dto.MetricFamily, error) {
 			labelPairs := make([]*dto.LabelPair, 0, len(series[i].Labels))
 			for j := range series[i].Labels {
 				label := series[i].Labels[j]
-				if label.Name != labels.MetricName {
-					labelPair := &dto.LabelPair{
-						Name:  &label.Name,
-						Value: &label.Value,
-					}
-					labelPairs = append(labelPairs, labelPair)
+				if label.Name == labels.MetricName {
+					continue
 				}
+				labelPair := &dto.LabelPair{
+					Name:  &label.Name,
+					Value: &label.Value,
+				}
+				labelPairs = append(labelPairs, labelPair)
 			}
 
 			for _, sample := range series[i].Samples {
