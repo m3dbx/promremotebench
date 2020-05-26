@@ -32,13 +32,20 @@ import (
 	"github.com/prometheus/prometheus/prompb"
 )
 
-type HostsSimulator struct {
+type HostsSimulator interface {
+	Hosts() []devops.Host
+	Generate(progressBy, scrapeDuration time.Duration, newSeriesPercent float64) (map[string][]prompb.TimeSeries, error)
+}
+
+type hostsSimulator struct {
 	sync.RWMutex
 	hosts        []devops.Host
 	allHosts     []devops.Host
 	appendLabels []prompb.Label
 	hostIndex    int
 }
+
+var _ HostsSimulator = (*hostsSimulator)(nil)
 
 type HostsSimulatorOptions struct {
 	Labels map[string]string
@@ -48,7 +55,7 @@ func NewHostsSimulator(
 	hostCount int,
 	start time.Time,
 	opts HostsSimulatorOptions,
-) *HostsSimulator {
+) *hostsSimulator {
 	var hosts []devops.Host
 	for i := 0; i < hostCount; i++ {
 		host := devops.NewHost(i, 0, start)
@@ -65,7 +72,7 @@ func NewHostsSimulator(
 		}
 	}
 
-	return &HostsSimulator{
+	return &hostsSimulator{
 		hosts:        hosts,
 		allHosts:     hosts,
 		appendLabels: appendLabels,
@@ -73,20 +80,20 @@ func NewHostsSimulator(
 	}
 }
 
-func (h *HostsSimulator) nextHostIndexWithLock() int {
+func (h *hostsSimulator) nextHostIndexWithLock() int {
 	v := h.hostIndex
 	h.hostIndex++
 	return v
 }
 
-func (h *HostsSimulator) Hosts() []devops.Host {
+func (h *hostsSimulator) Hosts() []devops.Host {
 	h.RLock()
 	defer h.RUnlock()
 
 	return append([]devops.Host{}, h.hosts...)
 }
 
-func (h *HostsSimulator) Generate(
+func (h *hostsSimulator) Generate(
 	progressBy, scrapeDuration time.Duration,
 	newSeriesPercent float64,
 ) (map[string][]prompb.TimeSeries, error) {
@@ -147,9 +154,9 @@ func (h *HostsSimulator) Generate(
 
 				switch v := p.FieldValues[i].(type) {
 				case int:
-					val = float64(int(v))
+					val = float64(v)
 				case int64:
-					val = float64(int64(v))
+					val = float64(v)
 				case float64:
 					val = float64(v)
 				default:
@@ -157,18 +164,18 @@ func (h *HostsSimulator) Generate(
 				}
 
 				labels := []prompb.Label{
-					prompb.Label{Name: labels.MetricName, Value: string(p.MeasurementName)},
-					prompb.Label{Name: "measurement", Value: string(fieldName)},
-					prompb.Label{Name: string(devops.MachineTagKeys[0]), Value: string(host.Name)},
-					prompb.Label{Name: string(devops.MachineTagKeys[1]), Value: string(host.Region)},
-					prompb.Label{Name: string(devops.MachineTagKeys[2]), Value: string(host.Datacenter)},
-					prompb.Label{Name: string(devops.MachineTagKeys[3]), Value: string(host.Rack)},
-					prompb.Label{Name: string(devops.MachineTagKeys[4]), Value: string(host.OS)},
-					prompb.Label{Name: string(devops.MachineTagKeys[5]), Value: string(host.Arch)},
-					prompb.Label{Name: string(devops.MachineTagKeys[6]), Value: string(host.Team)},
-					prompb.Label{Name: string(devops.MachineTagKeys[7]), Value: string(host.Service)},
-					prompb.Label{Name: string(devops.MachineTagKeys[8]), Value: string(host.ServiceVersion)},
-					prompb.Label{Name: string(devops.MachineTagKeys[9]), Value: string(host.ServiceEnvironment)},
+					{Name: labels.MetricName, Value: string(p.MeasurementName)},
+					{Name: "measurement", Value: string(fieldName)},
+					{Name: string(devops.MachineTagKeys[0]), Value: string(host.Name)},
+					{Name: string(devops.MachineTagKeys[1]), Value: string(host.Region)},
+					{Name: string(devops.MachineTagKeys[2]), Value: string(host.Datacenter)},
+					{Name: string(devops.MachineTagKeys[3]), Value: string(host.Rack)},
+					{Name: string(devops.MachineTagKeys[4]), Value: string(host.OS)},
+					{Name: string(devops.MachineTagKeys[5]), Value: string(host.Arch)},
+					{Name: string(devops.MachineTagKeys[6]), Value: string(host.Team)},
+					{Name: string(devops.MachineTagKeys[7]), Value: string(host.Service)},
+					{Name: string(devops.MachineTagKeys[8]), Value: string(host.ServiceVersion)},
+					{Name: string(devops.MachineTagKeys[9]), Value: string(host.ServiceEnvironment)},
 				}
 				if len(h.appendLabels) > 0 {
 					labels = append(labels, h.appendLabels...)
