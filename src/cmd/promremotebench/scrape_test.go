@@ -21,6 +21,7 @@
 package main
 
 import (
+	"sort"
 	"testing"
 	"time"
 
@@ -117,11 +118,10 @@ func TestGatherComplex(t *testing.T) {
 
 	require.Equal(t, 2, len(result))
 
-	if *result[0].Name == "b" { // ensure stable order
-		tmp := result[1]
-		result[1] = result[0]
-		result[0] = tmp
-	}
+	// ensure predictable order
+	sort.Slice(result, func(i, j int) bool {
+		return *result[i].Name < *result[j].Name
+	})
 
 	assert.Equal(t, "a", *result[0].Name)
 	assert.Equal(t, dto.MetricType_GAUGE, *result[0].Type)
