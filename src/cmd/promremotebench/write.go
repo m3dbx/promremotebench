@@ -46,7 +46,7 @@ import (
 )
 
 func writeLoop(
-	generator *generators.HostsSimulator,
+	generator generators.HostsSimulator,
 	scrapeDuration time.Duration,
 	progressBy time.Duration,
 	newSeriesPercent float64,

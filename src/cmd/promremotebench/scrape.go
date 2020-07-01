@@ -33,7 +33,7 @@ import (
 )
 
 func newGatherer(
-	generator *generators.HostsSimulator,
+	generator generators.HostsSimulator,
 	scrapeIntervalExpected time.Duration,
 	newSeriesPercent float64,
 	logger *zap.Logger,
@@ -50,7 +50,7 @@ func newGatherer(
 
 type gatherer struct {
 	sync.Mutex
-	generator              *generators.HostsSimulator
+	generator              generators.HostsSimulator
 	scrapeIntervalExpected time.Duration
 	newSeriesPercent       float64
 	logger                 *zap.Logger
@@ -63,8 +63,7 @@ func (g *gatherer) Gather() ([]*dto.MetricFamily, error) {
 
 	interval := g.scrapeIntervalExpected
 
-	hostSeries, err := g.generator.Generate(interval, interval,
-		g.newSeriesPercent)
+	hostSeries, err := g.generator.Generate(interval, interval, g.newSeriesPercent)
 	if err != nil {
 		g.logger.Fatal("error generating load", zap.Error(err))
 	}
@@ -99,18 +98,25 @@ func (g *gatherer) Gather() ([]*dto.MetricFamily, error) {
 				g.logger.Fatal("no metric family found for metric")
 			}
 
-			labels := make([]*dto.LabelPair, 0, len(series[i].Labels))
+			labelPairs := make([]*dto.LabelPair, 0, len(series[i].Labels))
 			for j := range series[i].Labels {
-				label := &dto.LabelPair{
-					Name:  &series[i].Labels[j].Name,
-					Value: &series[i].Labels[j].Value,
+				// Not using a for-loop value here because we need to store pointers to it,
+				// which results in all labelPair containing the same values in the end.
+				label := series[i].Labels[j]
+				if label.Name == labels.MetricName {
+					continue
 				}
-				labels = append(labels, label)
+				labelPair := &dto.LabelPair{
+					Name:  &label.Name,
+					Value: &label.Value,
+				}
+				labelPairs = append(labelPairs, labelPair)
 			}
 
-			for _, sample := range series[i].Samples {
+			for j := range series[i].Samples {
+				sample := series[i].Samples[j]
 				metric := &dto.Metric{
-					Label: labels,
+					Label: labelPairs,
 					Gauge: &dto.Gauge{
 						Value: &sample.Value,
 					},
