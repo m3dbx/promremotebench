@@ -12,6 +12,13 @@ The main controls for controlling cardinality is the number of hosts to generate
 
 You can also specify fixed labels to apply to each benchmarker instance should you want to query the metrics. Use the environment variable `PROMREMOTEBENCH_LABELS_JSON` or the command line argument `labels`.
 
+## Building
+
+To build `promremotebench` Docker image:
+```shell
+docker build -t promremotebench .
+```
+
 ## Kubernetes manifest
 
 Here is what a Kubernetes manifest looks like for hosting the benchmarker, simply turn up number of replicas for more load or targets.

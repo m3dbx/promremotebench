@@ -181,7 +181,7 @@ func NewClient(
 	return &Client{
 		urls:    urls,
 		client:  httpClient,
-		timeout: time.Duration(timeout),
+		timeout: timeout,
 		metrics: metrics,
 	}, nil
 }
