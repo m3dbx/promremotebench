@@ -23,6 +23,7 @@ package generators
 import (
 	"fmt"
 	"math"
+	"math/rand"
 	"sync"
 	"time"
 
@@ -43,12 +44,17 @@ type hostsSimulator struct {
 	allHosts     []devops.Host
 	appendLabels []prompb.Label
 	hostIndex    int
+
+	coldWritesPercent float64
+	coldWritesRange   time.Duration
 }
 
 var _ HostsSimulator = (*hostsSimulator)(nil)
 
 type HostsSimulatorOptions struct {
-	Labels map[string]string
+	Labels            map[string]string
+	ColdWritesPercent float64
+	ColdWritesRange   time.Duration
 }
 
 func NewHostsSimulator(
@@ -77,6 +83,9 @@ func NewHostsSimulator(
 		allHosts:     hosts,
 		appendLabels: appendLabels,
 		hostIndex:    hostCount,
+
+		coldWritesPercent: opts.ColdWritesPercent,
+		coldWritesRange:   opts.ColdWritesRange,
 	}
 }
 
@@ -140,8 +149,6 @@ func (h *hostsSimulator) Generate(
 	// Progress hosts
 	h.hosts = h.hosts[numHosts:]
 
-	nowUnixMilliseconds := now.UnixNano() / int64(time.Millisecond)
-
 	hostValues := make(map[string][]prompb.TimeSeries)
 	for _, host := range sendFromHosts {
 		allSeries := make([]prompb.TimeSeries, 0, len(host.SimulatedMeasurements))
@@ -158,7 +165,7 @@ func (h *hostsSimulator) Generate(
 				case int64:
 					val = float64(v)
 				case float64:
-					val = float64(v)
+					val = v
 				default:
 					panic(fmt.Sprintf("bad field %s with value type: %T with ", fieldName, v))
 				}
@@ -181,9 +188,16 @@ func (h *hostsSimulator) Generate(
 					labels = append(labels, h.appendLabels...)
 				}
 
+				timestamp := now
+				if h.coldWritesPercent > 0 && rand.Float64() <= h.coldWritesPercent {
+					timestamp = now.Add(-time.Duration(float64(h.coldWritesRange) * rand.Float64()))
+				}
+
+				timestampUnixMillis := timestamp.UnixNano() / int64(time.Millisecond)
+
 				sample := prompb.Sample{
 					Value:     val,
-					Timestamp: nowUnixMilliseconds,
+					Timestamp: timestampUnixMillis,
 				}
 
 				allSeries = append(allSeries, prompb.TimeSeries{

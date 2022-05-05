@@ -71,6 +71,8 @@ const (
 	envQuerySleep         = "PROMREMOTEBENCH_QUERY_SLEEP"
 	envQueryDebug         = "PROMREMOTEBENCH_QUERY_DEBUG"
 	envQueryDebugLength   = "PROMREMOTEBENCH_QUERY_DEBUG_LENGTH"
+	envColdWritesPercent  = "PROMREMOTEBENCH_COLD_WRITES_PERCENTAGE"
+	envColdWritesRange    = "PROMREMOTEBENCH_COLD_WRITES_RANGE"
 
 	// maxNumScrapesActive determines how many scrapes
 	// at max to allow be active (fall behind by)
@@ -150,6 +152,10 @@ func main() {
 		scrapeIntervalSeconds = flag.Float64("interval", 10.0, "Prom endpoint scrape interval in seconds (for remote write)")
 		remoteBatchSize       = flag.Int("batch", 128, "Number of metrics per batch send via remote write (for remote write)")
 		scrapeSpreadBy        = flag.Float64("spread", 10.0, "The number of times to spread the scrape interval by when emitting samples (for remote write)")
+
+		// cold write options
+		coldWritesPercent = flag.Float64("cold-percent", 0, "Percentage of cold writes [0.0, 1.0]")
+		coldWritesRange   = flag.Duration("cold-range", 5*24*time.Hour, "Range of cold writes (duration)")
 
 		// checker options
 		checkerTick       = flag.Duration("checker-tick", time.Minute, "Checker tick for trimming values and series")
@@ -389,6 +395,26 @@ func main() {
 		}
 	}
 
+	if v := os.Getenv(envColdWritesPercent); v != "" {
+		*coldWritesPercent, err = strconv.ParseFloat(v, 64)
+		if err != nil {
+			logger.Fatal("could not parse env var",
+				zap.String("var", envColdWritesPercent), zap.Error(err))
+		}
+	}
+	if *coldWritesPercent < 0.0 || *coldWritesPercent > 1.0 {
+		logger.Fatal("cold writes percentage must be in the range of [0.0, 1.0]",
+			zap.Float64("value", *coldWritesPercent))
+	}
+
+	if v := os.Getenv(envColdWritesRange); v != "" {
+		*coldWritesRange, err = time.ParseDuration(v)
+		if err != nil {
+			logger.Fatal("could not parse env var",
+				zap.String("var", envColdWritesRange), zap.Error(err))
+		}
+	}
+
 	// Parse opts further.
 	writeTargetHeadersMap := make(map[string]string)
 	for _, h := range writeTargetHeaders {
@@ -439,9 +465,17 @@ func main() {
 	}
 
 	// Create structures.
-	now := time.Now()
-	hostGen := generators.NewHostsSimulator(*numHosts, now,
-		generators.HostsSimulatorOptions{Labels: parsedLabels})
+	var (
+		now         = time.Now()
+		hostSimOpts = generators.HostsSimulatorOptions{
+			Labels:            parsedLabels,
+			ColdWritesPercent: *coldWritesPercent,
+			ColdWritesRange:   *coldWritesRange,
+		}
+
+		hostGen = generators.NewHostsSimulator(*numHosts, now, hostSimOpts)
+	)
+
 	client, err := NewClient(writeTargetURLs, time.Minute, scope.SubScope("writes"))
 	if err != nil {
 		logger.Fatal("error creating remote client",

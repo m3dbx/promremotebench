@@ -120,6 +120,7 @@ func (g *gatherer) Gather() ([]*dto.MetricFamily, error) {
 					Gauge: &dto.Gauge{
 						Value: &sample.Value,
 					},
+					TimestampMs: &sample.Timestamp,
 				}
 				family.Metric = append(family.Metric, metric)
 			}
