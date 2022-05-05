@@ -193,7 +193,7 @@ func (h *hostsSimulator) Generate(
 					timestamp = now.Add(-time.Duration(float64(h.coldWritesRange) * rand.Float64()))
 				}
 
-				timestampUnixMillis := timestamp.UnixNano() / int64(time.Millisecond)
+				timestampUnixMillis := timestamp.Truncate(30*time.Second).UnixNano() / int64(time.Millisecond)
 
 				sample := prompb.Sample{
 					Value:     val,
