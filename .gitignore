@@ -5,6 +5,7 @@
 *.so
 *.dylib
 .DS_Store
+.idea/
 .vscode/
 
 # Test binary, build with `go test -c`
@@ -18,3 +19,6 @@ src/promremotebench
 
 # Vim
 *.swp
+
+# vendored
+vendor/
