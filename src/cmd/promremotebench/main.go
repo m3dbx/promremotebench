@@ -473,7 +473,7 @@ func main() {
 			ColdWritesRange:   *coldWritesRange,
 		}
 
-		hostGen = generators.NewHostsSimulator(*numHosts, now, hostSimOpts)
+		hostGen = generators.NewHostsSimulator(*numHosts, now, hostSimOpts, logger)
 	)
 
 	client, err := NewClient(writeTargetURLs, time.Minute, scope.SubScope("writes"))

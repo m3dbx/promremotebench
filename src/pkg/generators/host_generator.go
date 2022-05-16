@@ -31,6 +31,7 @@ import (
 	"github.com/influxdata/influxdb-comparisons/bulk_data_gen/devops"
 	"github.com/prometheus/prometheus/pkg/labels"
 	"github.com/prometheus/prometheus/prompb"
+	"go.uber.org/zap"
 )
 
 type HostsSimulator interface {
@@ -47,6 +48,7 @@ type hostsSimulator struct {
 
 	coldWritesPercent float64
 	coldWritesRange   time.Duration
+	logger            *zap.Logger
 }
 
 var _ HostsSimulator = (*hostsSimulator)(nil)
@@ -61,6 +63,7 @@ func NewHostsSimulator(
 	hostCount int,
 	start time.Time,
 	opts HostsSimulatorOptions,
+	logger *zap.Logger,
 ) *hostsSimulator {
 	var hosts []devops.Host
 	for i := 0; i < hostCount; i++ {
@@ -86,6 +89,7 @@ func NewHostsSimulator(
 
 		coldWritesPercent: opts.ColdWritesPercent,
 		coldWritesRange:   opts.ColdWritesRange,
+		logger:            logger,
 	}
 }
 
@@ -129,6 +133,10 @@ func (h *hostsSimulator) Generate(
 		}
 		if newSeriesPercent > 0 {
 			remove := int(math.Ceil(newSeriesPercent * float64(len(h.allHosts))))
+			h.logger.Info("removing series",
+				zap.Float64("newSeriesPercent", newSeriesPercent),
+				zap.Int("len(allHosts)", len(h.allHosts)),
+				zap.Int("remove", remove))
 			h.allHosts = h.allHosts[:len(h.allHosts)-remove]
 			for i := 0; i < remove; i++ {
 				newHostIndex := h.nextHostIndexWithLock()
