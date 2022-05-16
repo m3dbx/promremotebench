@@ -122,18 +122,18 @@ func (h *hostsSimulator) Generate(
 		// Always progress by at least one
 		numHosts = 1
 	}
+
 	if len(h.hosts) == 0 {
 		// Out of hosts, remove/add hosts as needed and progress ticking
 		for _, host := range h.allHosts {
 			host.TickAll(progressBy)
 		}
 		if newSeriesPercent > 0 {
-			remove := int(math.Ceil(newSeriesPercent * float64(len(h.allHosts))))
-			h.allHosts = h.allHosts[:len(h.allHosts)-remove]
-			for i := 0; i < remove; i++ {
-				newHostIndex := h.nextHostIndexWithLock()
-				newHost := devops.NewHost(newHostIndex, 0, now)
-				h.allHosts = append(h.allHosts, newHost)
+			for i := range h.allHosts {
+				if rand.Float64() < newSeriesPercent {
+					newHostIndex := h.nextHostIndexWithLock()
+					h.allHosts[i] = devops.NewHost(newHostIndex, 0, now)
+				}
 			}
 		}
 		// Reset hosts
