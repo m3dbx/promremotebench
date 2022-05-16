@@ -135,7 +135,7 @@ func (h *hostsSimulator) Generate(
 			remove := int(math.Ceil(newSeriesPercent * float64(len(h.allHosts))))
 			h.logger.Info("removing series",
 				zap.Float64("newSeriesPercent", newSeriesPercent),
-				zap.Int("len(allHosts)", len(h.allHosts)),
+				zap.Int("len(h.allHosts)", len(h.allHosts)),
 				zap.Int("remove", remove))
 			h.allHosts = h.allHosts[:len(h.allHosts)-remove]
 			for i := 0; i < remove; i++ {
