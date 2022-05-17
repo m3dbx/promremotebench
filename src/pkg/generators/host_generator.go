@@ -34,14 +34,14 @@ import (
 )
 
 type HostsSimulator interface {
-	Hosts() []devops.Host
+	Hosts() []*devops.Host
 	Generate(progressBy, scrapeDuration time.Duration, newSeriesPercent float64) (map[string][]prompb.TimeSeries, error)
 }
 
 type hostsSimulator struct {
 	sync.RWMutex
-	hosts        []devops.Host
-	allHosts     []devops.Host
+	hosts        []*devops.Host
+	allHosts     []*devops.Host
 	appendLabels []prompb.Label
 	hostIndex    int
 
@@ -62,10 +62,10 @@ func NewHostsSimulator(
 	start time.Time,
 	opts HostsSimulatorOptions,
 ) *hostsSimulator {
-	var hosts []devops.Host
+	var hosts []*devops.Host
 	for i := 0; i < hostCount; i++ {
 		host := devops.NewHost(i, 0, start)
-		hosts = append(hosts, host)
+		hosts = append(hosts, &host)
 	}
 
 	var appendLabels []prompb.Label
@@ -95,11 +95,11 @@ func (h *hostsSimulator) nextHostIndexWithLock() int {
 	return v
 }
 
-func (h *hostsSimulator) Hosts() []devops.Host {
+func (h *hostsSimulator) Hosts() []*devops.Host {
 	h.RLock()
 	defer h.RUnlock()
 
-	return append([]devops.Host{}, h.hosts...)
+	return append([]*devops.Host{}, h.hosts...)
 }
 
 func (h *hostsSimulator) Generate(
@@ -132,7 +132,8 @@ func (h *hostsSimulator) Generate(
 			for i := range h.allHosts {
 				if rand.Float64() < newSeriesPercent {
 					newHostIndex := h.nextHostIndexWithLock()
-					h.allHosts[i] = devops.NewHost(newHostIndex, 0, now)
+					newHost := devops.NewHost(newHostIndex, 0, now)
+					h.allHosts[i] = &newHost
 				}
 			}
 		}
@@ -188,12 +189,11 @@ func (h *hostsSimulator) Generate(
 					labels = append(labels, h.appendLabels...)
 				}
 
-				timestamp := now
+				timestampUnixMillis := now.UnixMilli()
 				if h.coldWritesPercent > 0 && rand.Float64() <= h.coldWritesPercent {
-					timestamp = now.Add(-time.Duration(float64(h.coldWritesRange) * rand.Float64()))
+					timestamp := now.Add(-time.Duration(float64(h.coldWritesRange) * rand.Float64()))
+					timestampUnixMillis = timestamp.Truncate(scrapeDuration).UnixMilli()
 				}
-
-				timestampUnixMillis := timestamp.Truncate(30*time.Second).UnixNano() / int64(time.Millisecond)
 
 				sample := prompb.Sample{
 					Value:     val,
