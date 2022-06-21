@@ -27,10 +27,15 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cespare/xxhash"
 	"github.com/influxdata/influxdb-comparisons/bulk_data_gen/common"
 	"github.com/influxdata/influxdb-comparisons/bulk_data_gen/devops"
 	"github.com/prometheus/prometheus/pkg/labels"
 	"github.com/prometheus/prometheus/prompb"
+)
+
+const (
+	SyntheticLabelName = "synthetic_label"
 )
 
 type HostsSimulator interface {
@@ -45,6 +50,8 @@ type hostsSimulator struct {
 	appendLabels []prompb.Label
 	hostIndex    int
 
+	syntheticLabelCardinality uint64
+
 	coldWritesPercent float64
 	coldWritesRange   time.Duration
 }
@@ -52,9 +59,10 @@ type hostsSimulator struct {
 var _ HostsSimulator = (*hostsSimulator)(nil)
 
 type HostsSimulatorOptions struct {
-	Labels            map[string]string
-	ColdWritesPercent float64
-	ColdWritesRange   time.Duration
+	Labels                    map[string]string
+	SyntheticLabelCardinality uint64
+	ColdWritesPercent         float64
+	ColdWritesRange           time.Duration
 }
 
 func NewHostsSimulator(
@@ -83,6 +91,8 @@ func NewHostsSimulator(
 		allHosts:     hosts,
 		appendLabels: appendLabels,
 		hostIndex:    hostCount,
+
+		syntheticLabelCardinality: opts.SyntheticLabelCardinality,
 
 		coldWritesPercent: opts.ColdWritesPercent,
 		coldWritesRange:   opts.ColdWritesRange,
@@ -150,6 +160,8 @@ func (h *hostsSimulator) Generate(
 	// Progress hosts
 	h.hosts = h.hosts[numHosts:]
 
+	hasher := xxhash.New()
+
 	hostValues := make(map[string][]prompb.TimeSeries)
 	for _, host := range sendFromHosts {
 		allSeries := make([]prompb.TimeSeries, 0, len(host.SimulatedMeasurements))
@@ -187,6 +199,18 @@ func (h *hostsSimulator) Generate(
 				}
 				if len(h.appendLabels) > 0 {
 					labels = append(labels, h.appendLabels...)
+				}
+
+				if h.syntheticLabelCardinality > 0 {
+					hasher.Reset()
+					for _, label := range labels {
+						_, _ = hasher.Write([]byte(label.Value))
+					}
+					syntheticLabelValue := hasher.Sum64() % h.syntheticLabelCardinality
+					labels = append(labels, prompb.Label{
+						Name:  SyntheticLabelName,
+						Value: fmt.Sprintf("%08d", syntheticLabelValue),
+					})
 				}
 
 				timestampUnixMillis := now.UnixMilli()

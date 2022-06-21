@@ -42,37 +42,38 @@ import (
 )
 
 const (
-	envWrite              = "PROMREMOTEBENCH_WRITE"
-	envQuery              = "PROMREMOTEBENCH_QUERY"
-	envTarget             = "PROMREMOTEBENCH_TARGET"
-	envTargetHeadersJSON  = "PROMREMOTEBENCH_TARGET_HEADERS_JSON"
-	envScrapeServer       = "PROMREMOTEBENCH_SCRAPE_SERVER"
-	envQueryTarget        = "PROMREMOTEBENCH_QUERY_TARGET"
-	envInterval           = "PROMREMOTEBENCH_INTERVAL"
-	envNumHosts           = "PROMREMOTEBENCH_NUM_HOSTS"
-	envRemoteBatchSize    = "PROMREMOTEBENCH_BATCH"
-	envNewSeriesPercent   = "PROMREMOTEBENCH_NEW_SERIES_PERCENTAGE"
-	envLabelsJSON         = "PROMREMOTEBENCH_LABELS_JSON"
-	envLabelsJSONEnv      = "PROMREMOTEBENCH_LABELS_JSON_ENV"
-	envCheckerTick        = "PROMREMOTEBENCH_CHECKER_TICK"
-	envCheckerExpiration  = "PROMREMOTEBENCH_CHECKER_EXPIRATION"
-	envCheckerTargetLen   = "PROMREMOTEBENCH_CHECKER_TARGET_LEN"
-	envQueryConcurrency   = "PROMREMOTEBENCH_QUERY_CONCURRENCY"
-	envQueryNumSeries     = "PROMREMOTEBENCH_QUERY_NUM_SERIES"
-	envQueryLoadStep      = "PROMREMOTEBENCH_QUERY_LOAD_STEP"
-	envQueryLoadRange     = "PROMREMOTEBENCH_QUERY_LOAD_RANGE"
-	envQuerySkipAccuracy  = "PROMREMOTEBENCH_QUERY_SKIP_ACCURACY"
-	envQueryAccuracyStep  = "PROMREMOTEBENCH_QUERY_ACCURACY_STEP"
-	envQueryAccuracyRange = "PROMREMOTEBENCH_QUERY_ACCURACY_RANGE"
-	envQueryAggregation   = "PROMREMOTEBENCH_QUERY_AGGREGATION"
-	envQueryLabelsJSON    = "PROMREMOTEBENCH_QUERY_LABELS_JSON"
-	envQueryLabelsJSONEnv = "PROMREMOTEBENCH_QUERY_LABELS_JSON_ENV"
-	envQueryHeaders       = "PROMREMOTEBENCH_QUERY_HEADERS_JSON"
-	envQuerySleep         = "PROMREMOTEBENCH_QUERY_SLEEP"
-	envQueryDebug         = "PROMREMOTEBENCH_QUERY_DEBUG"
-	envQueryDebugLength   = "PROMREMOTEBENCH_QUERY_DEBUG_LENGTH"
-	envColdWritesPercent  = "PROMREMOTEBENCH_COLD_WRITES_PERCENTAGE"
-	envColdWritesRange    = "PROMREMOTEBENCH_COLD_WRITES_RANGE"
+	envWrite                     = "PROMREMOTEBENCH_WRITE"
+	envQuery                     = "PROMREMOTEBENCH_QUERY"
+	envTarget                    = "PROMREMOTEBENCH_TARGET"
+	envTargetHeadersJSON         = "PROMREMOTEBENCH_TARGET_HEADERS_JSON"
+	envScrapeServer              = "PROMREMOTEBENCH_SCRAPE_SERVER"
+	envQueryTarget               = "PROMREMOTEBENCH_QUERY_TARGET"
+	envInterval                  = "PROMREMOTEBENCH_INTERVAL"
+	envNumHosts                  = "PROMREMOTEBENCH_NUM_HOSTS"
+	envRemoteBatchSize           = "PROMREMOTEBENCH_BATCH"
+	envNewSeriesPercent          = "PROMREMOTEBENCH_NEW_SERIES_PERCENTAGE"
+	envLabelsJSON                = "PROMREMOTEBENCH_LABELS_JSON"
+	envLabelsJSONEnv             = "PROMREMOTEBENCH_LABELS_JSON_ENV"
+	envSyntheticLabelCardinality = "PROMREMOTEBENCH_SYNTHETIC_LABEL_CARDINALITY"
+	envCheckerTick               = "PROMREMOTEBENCH_CHECKER_TICK"
+	envCheckerExpiration         = "PROMREMOTEBENCH_CHECKER_EXPIRATION"
+	envCheckerTargetLen          = "PROMREMOTEBENCH_CHECKER_TARGET_LEN"
+	envQueryConcurrency          = "PROMREMOTEBENCH_QUERY_CONCURRENCY"
+	envQueryNumSeries            = "PROMREMOTEBENCH_QUERY_NUM_SERIES"
+	envQueryLoadStep             = "PROMREMOTEBENCH_QUERY_LOAD_STEP"
+	envQueryLoadRange            = "PROMREMOTEBENCH_QUERY_LOAD_RANGE"
+	envQuerySkipAccuracy         = "PROMREMOTEBENCH_QUERY_SKIP_ACCURACY"
+	envQueryAccuracyStep         = "PROMREMOTEBENCH_QUERY_ACCURACY_STEP"
+	envQueryAccuracyRange        = "PROMREMOTEBENCH_QUERY_ACCURACY_RANGE"
+	envQueryAggregation          = "PROMREMOTEBENCH_QUERY_AGGREGATION"
+	envQueryLabelsJSON           = "PROMREMOTEBENCH_QUERY_LABELS_JSON"
+	envQueryLabelsJSONEnv        = "PROMREMOTEBENCH_QUERY_LABELS_JSON_ENV"
+	envQueryHeaders              = "PROMREMOTEBENCH_QUERY_HEADERS_JSON"
+	envQuerySleep                = "PROMREMOTEBENCH_QUERY_SLEEP"
+	envQueryDebug                = "PROMREMOTEBENCH_QUERY_DEBUG"
+	envQueryDebugLength          = "PROMREMOTEBENCH_QUERY_DEBUG_LENGTH"
+	envColdWritesPercent         = "PROMREMOTEBENCH_COLD_WRITES_PERCENTAGE"
+	envColdWritesRange           = "PROMREMOTEBENCH_COLD_WRITES_RANGE"
 
 	// maxNumScrapesActive determines how many scrapes
 	// at max to allow be active (fall behind by)
@@ -152,6 +153,8 @@ func main() {
 		scrapeIntervalSeconds = flag.Float64("interval", 10.0, "Prom endpoint scrape interval in seconds (for remote write)")
 		remoteBatchSize       = flag.Int("batch", 128, "Number of metrics per batch send via remote write (for remote write)")
 		scrapeSpreadBy        = flag.Float64("spread", 10.0, "The number of times to spread the scrape interval by when emitting samples (for remote write)")
+
+		syntheticLabelCardinality = flag.Uint64("synthetic-label-cardinality", 0, "Global cardinality of synthetic label (for generating high cardinality `synthetic_label` label if specified)")
 
 		// cold write options
 		coldWritesPercent = flag.Float64("cold-percent", 0, "Percentage of cold writes [0.0, 1.0]")
@@ -291,6 +294,19 @@ func main() {
 	if v := os.Getenv(envLabelsJSONEnv); v != "" {
 		*labelsFromEnv = v
 	}
+
+	if v := os.Getenv(envSyntheticLabelCardinality); v != "" {
+		*syntheticLabelCardinality, err = strconv.ParseUint(v, 10, 64)
+		if err != nil {
+			logger.Fatal("could not parse env var",
+				zap.String("var", envSyntheticLabelCardinality), zap.Error(err))
+		}
+	}
+	if *syntheticLabelCardinality < 0 {
+		logger.Fatal("synthetic label cardinality must not be negative",
+			zap.Uint64("value", *syntheticLabelCardinality))
+	}
+
 	if v := os.Getenv(envQueryConcurrency); v != "" {
 		*queryConcurrency, err = strconv.Atoi(v)
 		if err != nil {
@@ -468,13 +484,28 @@ func main() {
 	var (
 		now         = time.Now()
 		hostSimOpts = generators.HostsSimulatorOptions{
-			Labels:            parsedLabels,
-			ColdWritesPercent: *coldWritesPercent,
-			ColdWritesRange:   *coldWritesRange,
+			Labels:                    parsedLabels,
+			SyntheticLabelCardinality: *syntheticLabelCardinality,
+			ColdWritesPercent:         *coldWritesPercent,
+			ColdWritesRange:           *coldWritesRange,
 		}
 
 		hostGen = generators.NewHostsSimulator(*numHosts, now, hostSimOpts)
 	)
+
+	if hostSimOpts.ColdWritesPercent > 0 {
+		logger.Info("will simulate cold writes",
+			zap.Float64("coldWritesPercent", hostSimOpts.ColdWritesPercent),
+			zap.Duration("coldWritesRange", hostSimOpts.ColdWritesRange),
+		)
+	}
+
+	if hostSimOpts.SyntheticLabelCardinality > 0 {
+		logger.Info("will emit synthetic label",
+			zap.String("label", generators.SyntheticLabelName),
+			zap.Uint64("cardinality", hostSimOpts.SyntheticLabelCardinality),
+		)
+	}
 
 	client, err := NewClient(writeTargetURLs, time.Minute, scope.SubScope("writes"))
 	if err != nil {
