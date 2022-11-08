@@ -41,8 +41,8 @@ type testSimulator struct {
 
 var _ generators.HostsSimulator = (*testSimulator)(nil)
 
-func (*testSimulator) Hosts() []devops.Host {
-	return []devops.Host{}
+func (*testSimulator) Hosts() []*devops.Host {
+	return []*devops.Host{}
 }
 
 func (t *testSimulator) Generate(time.Duration, time.Duration, float64) (map[string][]prompb.TimeSeries, error) {

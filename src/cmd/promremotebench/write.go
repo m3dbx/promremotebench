@@ -162,7 +162,7 @@ func NewClient(
 	timeout time.Duration,
 	scope tally.Scope,
 ) (*Client, error) {
-	httpClient, err := config.NewClientFromConfig(config.HTTPClientConfig{}, "remote_storage", false)
+	httpClient, err := config.NewClientFromConfig(config.HTTPClientConfig{}, "remote_storage")
 	if err != nil {
 		return nil, err
 	}

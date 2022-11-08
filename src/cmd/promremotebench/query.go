@@ -37,7 +37,7 @@ import (
 	"time"
 
 	"github.com/prometheus/common/model"
-	"github.com/prometheus/prometheus/promql"
+	"github.com/prometheus/prometheus/promql/parser"
 	"github.com/prometheus/prometheus/util/stats"
 
 	xerrors "github.com/m3db/m3/src/x/errors"
@@ -438,7 +438,7 @@ type PromQueryResult struct {
 
 // PromQueryData is a prom query data.
 type PromQueryData struct {
-	ResultType promql.ValueType  `json:"resultType"`
+	ResultType parser.ValueType  `json:"resultType"`
 	Result     []PromQueryMatrix `json:"result"`
 	Stats      *stats.QueryStats `json:"stats,omitempty"`
 }
